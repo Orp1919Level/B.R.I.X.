@@ -143,7 +143,7 @@
 
         <div id="controls">
             <h4>Controls:</h4>
-            <p>• Click to lock mouse cursor</p>
+            <p>• Shift: Lock mouse cursor</p>
             <p>• Mouse: Look around</p>
             <p>• WASD: Move</p>
             <p>• Space: Jump</p>
@@ -266,6 +266,10 @@
                         this.jumpSpeed = 0.4;
                         this.isGrounded = false;
                     }
+                    // Add Shift to lock mouse cursor
+                    if (e.code === 'ShiftLeft' && !this.isPointerLocked) {
+                        this.renderer.domElement.requestPointerLock();
+                    }
                 });
 
                 document.addEventListener('keyup', (e) => {
@@ -273,11 +277,11 @@
                 });
 
                 // Pointer lock
-                document.addEventListener('click', () => {
+                /*document.addEventListener('click', () => {
                     if (!this.isPointerLocked) {
                         this.renderer.domElement.requestPointerLock();
                     }
-                });
+                });*/
 
                 document.addEventListener('pointerlockchange', () => {
                     this.isPointerLocked = document.pointerLockElement === this.renderer.domElement;
