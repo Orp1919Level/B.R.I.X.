@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Minecraft World</title>
+    <title>3D Minecraft World - Infinite</title>
     <style>
         * {
             margin: 0;
@@ -127,17 +127,18 @@
     <div id="container">
         <div class="loading" id="loading">
             <div class="spinner"></div>
-            <div>Generating 3D Map...</div>
+            <div>Generating Infinite World...</div>
             <div id="loadingProgress">0%</div>
         </div>
         
         <div class="crosshair" id="crosshair" style="display: block;"></div>
         
         <div id="info">
-            <h3>🟫 Minecraft World</h3>
-            <p>Render Distance: 15x15</p>
-            <p>Total Chunks: <span id="tileCount">225</span></p>
+            <h3>🌍 Infinite Minecraft World</h3>
+            <p>Render Distance: <span id="renderDist">12</span> chunks</p>
+            <p>Loaded Chunks: <span id="tileCount">0</span></p>
             <p>Position: <span id="cameraPos">0, 0, 0</span></p>
+            <p>Chunk: <span id="currentChunk">0, 0</span></p>
             <p>Grounded: <span id="grounded">Yes</span></p>
         </div>
 
@@ -145,7 +146,7 @@
             <h4>Controls:</h4>
             <p>• Hold Q,E / Arrow Keys: Look left/right</p>
             <p>• Hold 1,3 / Up,Down: Look up/down</p>
-            <p>• WASD: Move</p>
+            <p>• WASD: Move (infinite world!)</p>
             <p>• Space: Jump</p>
             <p>• R: Reset view</p>
         </div>
@@ -154,20 +155,22 @@
             <p>FPS: <span id="fps">60</span></p>
             <p>Triangles: <span id="triangles">0</span></p>
             <p>Draw Calls: <span id="drawCalls">0</span></p>
+            <p>Generated: <span id="totalGenerated">0</span></p>
         </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        class FlatMap3D {
+        class InfiniteMap3D {
             constructor() {
                 this.scene = null;
                 this.camera = null;
                 this.renderer = null;
                 
-                this.renderDistance = 15;
+                this.renderDistance = 12; // Chunks to render around player
                 this.tileSize = 10;
                 this.tiles = new Map();
+                this.tileObjects = new Map(); // Store Three.js objects for cleanup
                 
                 this.keys = {};
                 this.moveSpeed = 0.3;
@@ -177,9 +180,16 @@
                 this.playerHeight = 3;
                 
                 // Camera rotation variables
-                this.cameraRotationY = 0; // Horizontal rotation (yaw)
-                this.cameraRotationX = 0; // Vertical rotation (pitch)
-                this.turnSpeed = 0.03; // Smooth turning speed
+                this.cameraRotationY = 0;
+                this.cameraRotationX = 0;
+                this.turnSpeed = 0.03;
+                
+                // Infinite world variables
+                this.currentChunkX = 0;
+                this.currentChunkZ = 0;
+                this.lastChunkX = 0;
+                this.lastChunkZ = 0;
+                this.totalChunksGenerated = 0;
                 
                 this.lastTime = 0;
                 this.frameCount = 0;
@@ -188,15 +198,12 @@
                 this.groundHeights = new Map();
                 this.collisionObjects = [];
                 
-                this.loadingProgress = 0;
-                this.totalTilesToLoad = this.renderDistance * this.renderDistance;
-                
                 this.init();
             }
 
             init() {
                 try {
-                    console.log('Initializing 3D Map...');
+                    console.log('Initializing Infinite 3D Map...');
                     this.setupScene();
                     this.setupCamera();
                     this.setupRenderer();
@@ -204,7 +211,7 @@
                     this.setupEventListeners();
                     
                     setTimeout(() => {
-                        this.generateInitialMap();
+                        this.generateInitialChunks();
                         this.finishLoading();
                         this.animate();
                     }, 100);
@@ -218,7 +225,7 @@
             setupScene() {
                 this.scene = new THREE.Scene();
                 this.scene.background = new THREE.Color(0x87CEEB);
-                this.scene.fog = new THREE.Fog(0x87CEEB, 50, 200);
+                this.scene.fog = new THREE.Fog(0x87CEEB, 80, 150);
                 console.log('Scene created');
             }
 
@@ -281,54 +288,133 @@
             }
 
             handleCameraRotation() {
-                // Smooth continuous rotation while keys are held
                 if (this.keys['ArrowLeft'] || this.keys['KeyQ']) {
-                    this.cameraRotationY += this.turnSpeed; // Turn left
+                    this.cameraRotationY += this.turnSpeed;
                 }
                 if (this.keys['ArrowRight'] || this.keys['KeyE']) {
-                    this.cameraRotationY -= this.turnSpeed; // Turn right
+                    this.cameraRotationY -= this.turnSpeed;
                 }
                 if (this.keys['ArrowUp'] || this.keys['Digit1']) {
-                    this.cameraRotationX += this.turnSpeed * 0.7; // Look up (slower)
+                    this.cameraRotationX += this.turnSpeed * 0.7;
                     this.cameraRotationX = Math.min(Math.PI/3, this.cameraRotationX);
                 }
                 if (this.keys['ArrowDown'] || this.keys['Digit3']) {
-                    this.cameraRotationX -= this.turnSpeed * 0.7; // Look down (slower)
+                    this.cameraRotationX -= this.turnSpeed * 0.7;
                     this.cameraRotationX = Math.max(-Math.PI/3, this.cameraRotationX);
                 }
 
-                // Apply rotations to camera with auto-leveling
-                this.camera.rotation.order = 'YXZ'; // Set rotation order
+                this.camera.rotation.order = 'YXZ';
                 this.camera.rotation.y = this.cameraRotationY;
                 this.camera.rotation.x = this.cameraRotationX;
-                this.camera.rotation.z = 0; // Force level (no roll/tilt)
+                this.camera.rotation.z = 0;
             }
 
-            generateInitialMap() {
-                console.log('Generating initial map...');
+            generateInitialChunks() {
+                console.log('Generating initial chunks...');
                 const halfDistance = Math.floor(this.renderDistance / 2);
-                let tilesCreated = 0;
+                let chunksGenerated = 0;
+                const totalChunks = this.renderDistance * this.renderDistance;
                 
                 for (let x = -halfDistance; x < halfDistance; x++) {
                     for (let z = -halfDistance; z < halfDistance; z++) {
-                        this.createTile(x, z);
-                        tilesCreated++;
+                        this.createChunk(x, z);
+                        chunksGenerated++;
                         
-                        this.loadingProgress = Math.floor((tilesCreated / this.totalTilesToLoad) * 100);
-                        document.getElementById('loadingProgress').textContent = this.loadingProgress + '%';
+                        const progress = Math.floor((chunksGenerated / totalChunks) * 100);
+                        document.getElementById('loadingProgress').textContent = progress + '%';
                     }
                 }
-                console.log(`Generated ${tilesCreated} tiles`);
+                console.log(`Generated ${chunksGenerated} initial chunks`);
             }
 
-            createTile(x, z) {
+            updateInfiniteWorld() {
+                // Calculate current chunk position
+                this.currentChunkX = Math.floor(this.camera.position.x / this.tileSize);
+                this.currentChunkZ = Math.floor(this.camera.position.z / this.tileSize);
+                
+                // Only update if player moved to a different chunk
+                if (this.currentChunkX !== this.lastChunkX || this.currentChunkZ !== this.lastChunkZ) {
+                    console.log(`Player moved to chunk ${this.currentChunkX}, ${this.currentChunkZ}`);
+                    
+                    // Generate new chunks around player
+                    this.generateChunksAroundPlayer();
+                    
+                    // Remove distant chunks
+                    this.removeDistantChunks();
+                    
+                    this.lastChunkX = this.currentChunkX;
+                    this.lastChunkZ = this.currentChunkZ;
+                }
+            }
+
+            generateChunksAroundPlayer() {
+                const halfDistance = Math.floor(this.renderDistance / 2);
+                
+                for (let x = this.currentChunkX - halfDistance; x <= this.currentChunkX + halfDistance; x++) {
+                    for (let z = this.currentChunkZ - halfDistance; z <= this.currentChunkZ + halfDistance; z++) {
+                        const key = `${x},${z}`;
+                        if (!this.tiles.has(key)) {
+                            this.createChunk(x, z);
+                        }
+                    }
+                }
+            }
+
+            removeDistantChunks() {
+                const chunksToRemove = [];
+                const maxDistance = this.renderDistance + 2; // Keep a few extra chunks as buffer
+                
+                this.tiles.forEach((tile, key) => {
+                    const [chunkX, chunkZ] = key.split(',').map(Number);
+                    const distance = Math.max(
+                        Math.abs(chunkX - this.currentChunkX),
+                        Math.abs(chunkZ - this.currentChunkZ)
+                    );
+                    
+                    if (distance > maxDistance) {
+                        chunksToRemove.push(key);
+                    }
+                });
+                
+                // Remove distant chunks
+                chunksToRemove.forEach(key => {
+                    const objects = this.tileObjects.get(key);
+                    if (objects) {
+                        objects.forEach(obj => {
+                            this.scene.remove(obj);
+                            if (obj.geometry) obj.geometry.dispose();
+                            if (obj.material) obj.material.dispose();
+                        });
+                        this.tileObjects.delete(key);
+                    }
+                    this.tiles.delete(key);
+                });
+                
+                if (chunksToRemove.length > 0) {
+                    console.log(`Removed ${chunksToRemove.length} distant chunks`);
+                }
+            }
+
+            createChunk(x, z) {
                 const key = `${x},${z}`;
                 if (this.tiles.has(key)) return;
 
+                const chunkObjects = [];
+
+                // Create terrain block
                 const geometry = new THREE.BoxGeometry(this.tileSize, 2, this.tileSize);
-                const material = new THREE.MeshLambertMaterial({ 
-                    color: 0x7CB342
-                });
+                
+                // Vary terrain colors based on position
+                const distance = Math.sqrt(x*x + z*z);
+                let color = 0x7CB342; // Default grass green
+                
+                if (distance > 20) {
+                    color = 0x8BC34A; // Light green for distant areas
+                } else if (distance > 10) {
+                    color = 0x689F38; // Medium green
+                }
+                
+                const material = new THREE.MeshLambertMaterial({ color: color });
 
                 const height = this.getGroundHeight(x * this.tileSize, z * this.tileSize) - 1;
                 
@@ -337,33 +423,75 @@
                 tile.receiveShadow = true;
                 tile.castShadow = true;
 
-                if (Math.random() < 0.1) {
-                    this.createTree(x * this.tileSize, height + 1, z * this.tileSize);
+                this.scene.add(tile);
+                chunkObjects.push(tile);
+
+                // Add trees with varying density
+                const treeChance = Math.max(0.05, 0.15 - distance * 0.002); // Fewer trees far away
+                if (Math.random() < treeChance) {
+                    const treeObjects = this.createTree(x * this.tileSize, height + 1, z * this.tileSize);
+                    chunkObjects.push(...treeObjects);
                 }
 
-                this.scene.add(tile);
-                this.tiles.set(key, tile);
+                // Add rocks occasionally
+                if (Math.random() < 0.03) {
+                    const rock = this.createRock(x * this.tileSize, height + 1, z * this.tileSize);
+                    chunkObjects.push(rock);
+                }
+
+                this.tiles.set(key, { x, z, height });
+                this.tileObjects.set(key, chunkObjects);
+                this.totalChunksGenerated++;
             }
 
             createTree(x, y, z) {
+                const treeObjects = [];
+                
+                // Tree trunk
                 const trunkGeometry = new THREE.BoxGeometry(1, 3, 1);
                 const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8D6E63 });
                 const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
                 trunk.position.set(x, y + 1.5, z);
                 trunk.castShadow = true;
                 this.scene.add(trunk);
+                treeObjects.push(trunk);
 
+                // Tree leaves
                 const leavesGeometry = new THREE.BoxGeometry(2, 2, 2);
                 const leavesMaterial = new THREE.MeshLambertMaterial({ color: 0x4CAF50 });
                 const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
                 leaves.position.set(x, y + 3.5, z);
                 leaves.castShadow = true;
                 this.scene.add(leaves);
+                treeObjects.push(leaves);
                 
+                // Add collision
                 this.collisionObjects.push({
                     x: x, z: z, y: y,
                     width: 1, height: 4, depth: 1
                 });
+                
+                return treeObjects;
+            }
+
+            createRock(x, y, z) {
+                const rockGeometry = new THREE.BoxGeometry(
+                    0.5 + Math.random() * 0.5,
+                    0.3 + Math.random() * 0.4,
+                    0.5 + Math.random() * 0.5
+                );
+                const rockMaterial = new THREE.MeshLambertMaterial({ color: 0x607D8B });
+                const rock = new THREE.Mesh(rockGeometry, rockMaterial);
+                rock.position.set(
+                    x + (Math.random() - 0.5) * this.tileSize * 0.8,
+                    y + rockGeometry.parameters.height / 2,
+                    z + (Math.random() - 0.5) * this.tileSize * 0.8
+                );
+                rock.castShadow = true;
+                rock.receiveShadow = true;
+                this.scene.add(rock);
+                
+                return rock;
             }
 
             getGroundHeight(x, z) {
@@ -372,8 +500,13 @@
                 const key = `${tileX},${tileZ}`;
                 
                 if (!this.groundHeights.has(key)) {
-                    const noise = Math.sin(tileX * 0.1) * Math.cos(tileZ * 0.1) * 2;
-                    const height = Math.max(0, 1 + noise);
+                    // More complex terrain generation
+                    const distance = Math.sqrt(tileX*tileX + tileZ*tileZ);
+                    const noise1 = Math.sin(tileX * 0.1) * Math.cos(tileZ * 0.1) * 2;
+                    const noise2 = Math.sin(tileX * 0.05) * Math.cos(tileZ * 0.05) * 4;
+                    const hills = Math.sin(distance * 0.02) * 3;
+                    
+                    const height = Math.max(0, 1 + noise1 + noise2 * 0.5 + hills);
                     this.groundHeights.set(key, height);
                 }
                 
@@ -461,7 +594,7 @@
 
             finishLoading() {
                 document.getElementById('loading').style.display = 'none';
-                console.log('Loading complete!');
+                console.log('Infinite world loading complete!');
             }
 
             updateUI() {
@@ -469,8 +602,13 @@
                 document.getElementById('cameraPos').textContent = 
                     `${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}`;
                 
+                document.getElementById('currentChunk').textContent = 
+                    `${this.currentChunkX}, ${this.currentChunkZ}`;
+                
                 document.getElementById('tileCount').textContent = this.tiles.size;
+                document.getElementById('totalGenerated').textContent = this.totalChunksGenerated;
                 document.getElementById('grounded').textContent = this.isGrounded ? 'Yes' : 'No';
+                document.getElementById('renderDist').textContent = this.renderDistance;
                 
                 const info = this.renderer.info;
                 document.getElementById('triangles').textContent = info.render.triangles;
@@ -493,8 +631,9 @@
                 const currentTime = performance.now();
                 this.updateFPS(currentTime);
                 
-                this.handleCameraRotation(); // Handle smooth camera rotation
+                this.handleCameraRotation();
                 this.handleMovement();
+                this.updateInfiniteWorld(); // Handle infinite world generation
                 this.updateUI();
                 
                 this.renderer.render(this.scene, this.camera);
@@ -502,8 +641,8 @@
         }
 
         window.addEventListener('load', () => {
-            console.log('Page loaded, starting 3D Map...');
-            new FlatMap3D();
+            console.log('Page loaded, starting Infinite 3D Map...');
+            new InfiniteMap3D();
         });
 
         window.addEventListener('error', (e) => {
