@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Flat Map - 20x20 Render Distance</title>
+    <title>3D Minecraft World</title>
     <style>
         * {
             margin: 0;
@@ -71,6 +71,7 @@
             color: white;
             font-size: 18px;
             z-index: 200;
+            text-align: center;
         }
 
         .spinner {
@@ -87,19 +88,55 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+
+        .crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 20px;
+            height: 20px;
+            z-index: 150;
+            pointer-events: none;
+        }
+
+        .crosshair::before,
+        .crosshair::after {
+            content: '';
+            position: absolute;
+            background: white;
+            border: 1px solid black;
+        }
+
+        .crosshair::before {
+            width: 2px;
+            height: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .crosshair::after {
+            width: 20px;
+            height: 2px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
     </style>
 </head>
 <body>
     <div id="container">
         <div class="loading" id="loading">
             <div class="spinner"></div>
-            Generating 3D Map...
+            <div>Generating 3D Map...</div>
+            <div id="loadingProgress">0%</div>
         </div>
+        
+        <div class="crosshair" id="crosshair" style="display: none;"></div>
         
         <div id="info">
             <h3>🟫 Minecraft World</h3>
-            <p>Render Distance: 30x30</p>
-            <p>Total Chunks: <span id="tileCount">900</span></p>
+            <p>Render Distance: 15x15</p>
+            <p>Total Chunks: <span id="tileCount">225</span></p>
             <p>Position: <span id="cameraPos">0, 0, 0</span></p>
             <p>Grounded: <span id="grounded">Yes</span></p>
         </div>
@@ -127,13 +164,10 @@
                 this.scene = null;
                 this.camera = null;
                 this.renderer = null;
-                this.controls = null;
                 
-                this.renderDistance = 30; // Changed from 100 to 30
+                this.renderDistance = 15; // Reduced to 15x15 for better performance
                 this.tileSize = 10;
                 this.tiles = new Map();
-                this.centerX = 0;
-                this.centerZ = 0;
                 
                 this.keys = {};
                 this.moveSpeed = 0.3;
@@ -141,37 +175,48 @@
                 this.gravity = -0.02;
                 this.isGrounded = false;
                 this.playerHeight = 3;
-                this.groundLevel = 0;
                 
                 this.lastTime = 0;
                 this.frameCount = 0;
                 this.lastFPSUpdate = 0;
                 
                 this.isPointerLocked = false;
-
                 this.groundHeights = new Map();
                 this.collisionObjects = [];
+                
+                this.loadingProgress = 0;
+                this.totalTilesToLoad = this.renderDistance * this.renderDistance;
                 
                 this.init();
             }
 
             init() {
-                this.setupScene();
-                this.setupCamera();
-                this.setupRenderer();
-                this.setupLighting();
-                this.setupEventListeners();
-                this.generateInitialMap();
-                this.animate();
-                
-                // Hide loading screen
-                document.getElementById('loading').style.display = 'none';
+                try {
+                    console.log('Initializing 3D Map...');
+                    this.setupScene();
+                    this.setupCamera();
+                    this.setupRenderer();
+                    this.setupLighting();
+                    this.setupEventListeners();
+                    
+                    // Generate map with progress tracking
+                    setTimeout(() => {
+                        this.generateInitialMap();
+                        this.finishLoading();
+                        this.animate();
+                    }, 100);
+                    
+                } catch (error) {
+                    console.error('Error initializing 3D Map:', error);
+                    document.getElementById('loading').innerHTML = '<div style="color: red;">Error loading map. Please refresh.</div>';
+                }
             }
 
             setupScene() {
                 this.scene = new THREE.Scene();
-                this.scene.background = new THREE.Color(0x87CEEB); // Minecraft sky blue
-                this.scene.fog = new THREE.Fog(0x87CEEB, 100, 300); // Reduced from 200, 800
+                this.scene.background = new THREE.Color(0x87CEEB);
+                this.scene.fog = new THREE.Fog(0x87CEEB, 50, 200);
+                console.log('Scene created');
             }
 
             setupCamera() {
@@ -181,8 +226,9 @@
                     0.1,
                     1000
                 );
-                this.camera.position.set(0, 30, 30);
+                this.camera.position.set(0, 15, 15);
                 this.camera.lookAt(0, 0, 0);
+                console.log('Camera created');
             }
 
             setupRenderer() {
@@ -191,26 +237,22 @@
                 this.renderer.shadowMap.enabled = true;
                 this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
                 document.getElementById('container').appendChild(this.renderer.domElement);
+                console.log('Renderer created');
             }
 
             setupLighting() {
                 // Ambient light
-                const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
                 this.scene.add(ambientLight);
 
                 // Directional light (sun)
                 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
                 directionalLight.position.set(50, 100, 50);
                 directionalLight.castShadow = true;
-                directionalLight.shadow.mapSize.width = 2048;
-                directionalLight.shadow.mapSize.height = 2048;
-                directionalLight.shadow.camera.near = 0.5;
-                directionalLight.shadow.camera.far = 500;
-                directionalLight.shadow.camera.left = -100;
-                directionalLight.shadow.camera.right = 100;
-                directionalLight.shadow.camera.top = 100;
-                directionalLight.shadow.camera.bottom = -100;
+                directionalLight.shadow.mapSize.width = 1024;
+                directionalLight.shadow.mapSize.height = 1024;
                 this.scene.add(directionalLight);
+                console.log('Lighting setup complete');
             }
 
             setupEventListeners() {
@@ -221,7 +263,7 @@
                         this.resetCamera();
                     }
                     if (e.code === 'Space' && this.isGrounded) {
-                        this.jumpSpeed = 0.4; // Jump height
+                        this.jumpSpeed = 0.4;
                         this.isGrounded = false;
                     }
                 });
@@ -230,7 +272,7 @@
                     this.keys[e.code] = false;
                 });
 
-                // Pointer lock for mouse look
+                // Pointer lock
                 document.addEventListener('click', () => {
                     if (!this.isPointerLocked) {
                         this.renderer.domElement.requestPointerLock();
@@ -239,9 +281,10 @@
 
                 document.addEventListener('pointerlockchange', () => {
                     this.isPointerLocked = document.pointerLockElement === this.renderer.domElement;
+                    document.getElementById('crosshair').style.display = this.isPointerLocked ? 'block' : 'none';
                 });
 
-                // Mouse movement for looking around
+                // Mouse movement
                 document.addEventListener('mousemove', (e) => {
                     if (this.isPointerLocked) {
                         const sensitivity = 0.002;
@@ -257,78 +300,49 @@
                     this.camera.updateProjectionMatrix();
                     this.renderer.setSize(window.innerWidth, window.innerHeight);
                 });
+
+                console.log('Event listeners setup complete');
             }
 
             generateInitialMap() {
+                console.log('Generating initial map...');
                 const halfDistance = Math.floor(this.renderDistance / 2);
+                let tilesCreated = 0;
                 
                 for (let x = -halfDistance; x < halfDistance; x++) {
                     for (let z = -halfDistance; z < halfDistance; z++) {
                         this.createTile(x, z);
+                        tilesCreated++;
+                        
+                        // Update progress
+                        this.loadingProgress = Math.floor((tilesCreated / this.totalTilesToLoad) * 100);
+                        document.getElementById('loadingProgress').textContent = this.loadingProgress + '%';
                     }
                 }
+                console.log(`Generated ${tilesCreated} tiles`);
             }
 
             createTile(x, z) {
                 const key = `${x},${z}`;
                 if (this.tiles.has(key)) return;
 
-                // Create Minecraft-style block terrain
+                // Create simple grass block
                 const geometry = new THREE.BoxGeometry(this.tileSize, 2, this.tileSize);
-                
-                // Minecraft block colors
-                const blockTypes = [
-                    0x7CB342, // Grass green
-                    0x8BC34A, // Light green
-                    0x689F38, // Dark green
-                    0x558B2F, // Forest green
-                ];
-                
-                // Get consistent height
-                const height = this.getGroundHeight(x * this.tileSize, z * this.tileSize) - 1;
-                
-                const color = blockTypes[Math.floor(Math.random() * blockTypes.length)];
                 const material = new THREE.MeshLambertMaterial({ 
-                    color: color,
-                    wireframe: false
+                    color: 0x7CB342 // Grass green
                 });
 
-                // Create mesh
+                // Get height
+                const height = this.getGroundHeight(x * this.tileSize, z * this.tileSize) - 1;
+                
                 const tile = new THREE.Mesh(geometry, material);
                 tile.position.set(x * this.tileSize, height, z * this.tileSize);
                 tile.receiveShadow = true;
                 tile.castShadow = true;
 
-                // Add Minecraft-style trees occasionally
-                if (Math.random() < 0.05) {
+                // Add occasional trees
+                if (Math.random() < 0.1) {
                     this.createTree(x * this.tileSize, height + 1, z * this.tileSize);
-                }
-
-                // Add random blocks/structures
-                if (Math.random() < 0.03) {
-                    const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
-                    const blockMaterial = new THREE.MeshLambertMaterial({ 
-                        color: Math.random() < 0.5 ? 0x795548 : 0x607D8B
-                    });
-                    const block = new THREE.Mesh(blockGeometry, blockMaterial);
-                    const blockX = x * this.tileSize + (Math.random() - 0.5) * this.tileSize;
-                    const blockZ = z * this.tileSize + (Math.random() - 0.5) * this.tileSize;
-                    const blockY = height + 2 + Math.random() * 2;
-                    
-                    block.position.set(blockX, blockY, blockZ);
-                    block.castShadow = true;
-                    block.receiveShadow = true;
-                    this.scene.add(block);
-                    
-                    // Add to collision objects
-                    this.collisionObjects.push({
-                        x: blockX,
-                        z: blockZ,
-                        y: blockY,
-                        width: 1,
-                        height: 1,
-                        depth: 1
-                    });
                 }
 
                 this.scene.add(tile);
@@ -336,30 +350,26 @@
             }
 
             createTree(x, y, z) {
-                // Tree trunk
-                const trunkGeometry = new THREE.BoxGeometry(1, 4, 1);
+                // Simple tree trunk
+                const trunkGeometry = new THREE.BoxGeometry(1, 3, 1);
                 const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8D6E63 });
                 const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
-                trunk.position.set(x, y + 2, z);
+                trunk.position.set(x, y + 1.5, z);
                 trunk.castShadow = true;
                 this.scene.add(trunk);
 
                 // Tree leaves
-                const leavesGeometry = new THREE.BoxGeometry(3, 3, 3);
+                const leavesGeometry = new THREE.BoxGeometry(2, 2, 2);
                 const leavesMaterial = new THREE.MeshLambertMaterial({ color: 0x4CAF50 });
                 const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
-                leaves.position.set(x, y + 5, z);
+                leaves.position.set(x, y + 3.5, z);
                 leaves.castShadow = true;
                 this.scene.add(leaves);
                 
-                // Add tree collision
+                // Add collision
                 this.collisionObjects.push({
-                    x: x,
-                    z: z,
-                    y: y,
-                    width: 1,
-                    height: 6,
-                    depth: 1
+                    x: x, z: z, y: y,
+                    width: 1, height: 4, depth: 1
                 });
             }
 
@@ -369,12 +379,12 @@
                 const key = `${tileX},${tileZ}`;
                 
                 if (!this.groundHeights.has(key)) {
-                    const noise = (Math.sin(tileX * 0.1) + Math.cos(tileZ * 0.1)) * 2;
+                    const noise = Math.sin(tileX * 0.1) * Math.cos(tileZ * 0.1) * 2;
                     const height = Math.max(0, 1 + noise);
                     this.groundHeights.set(key, height);
                 }
                 
-                return this.groundHeights.get(key) + 1; // +1 for block height
+                return this.groundHeights.get(key) + 1;
             }
 
             checkCollision(newX, newZ, playerRadius = 0.5) {
@@ -404,7 +414,7 @@
                     this.isGrounded = false;
                 }
                 
-                // Horizontal movement with collision detection
+                // Movement
                 const direction = new THREE.Vector3();
                 const moveVector = new THREE.Vector3();
                 
@@ -437,7 +447,7 @@
                 moveVector.normalize();
                 moveVector.multiplyScalar(this.moveSpeed);
                 
-                // Check collision before moving
+                // Apply movement with collision
                 const newX = this.camera.position.x + moveVector.x;
                 const newZ = this.camera.position.z + moveVector.z;
                 
@@ -450,9 +460,14 @@
             }
 
             resetCamera() {
-                this.camera.position.set(0, 30, 30);
+                this.camera.position.set(0, 15, 15);
                 this.camera.rotation.set(0, 0, 0);
-                this.camera.lookAt(0, 0, 0);
+                this.jumpSpeed = 0;
+            }
+
+            finishLoading() {
+                document.getElementById('loading').style.display = 'none';
+                console.log('Loading complete!');
             }
 
             updateUI() {
@@ -463,7 +478,6 @@
                 document.getElementById('tileCount').textContent = this.tiles.size;
                 document.getElementById('grounded').textContent = this.isGrounded ? 'Yes' : 'No';
                 
-                // Update stats
                 const info = this.renderer.info;
                 document.getElementById('triangles').textContent = info.render.triangles;
                 document.getElementById('drawCalls').textContent = info.render.calls;
@@ -486,16 +500,22 @@
                 this.updateFPS(currentTime);
                 
                 this.handleMovement();
-                this.updateMap();
                 this.updateUI();
                 
                 this.renderer.render(this.scene, this.camera);
             }
         }
 
-        // Initialize the 3D map when the page loads
+        // Initialize when page loads
         window.addEventListener('load', () => {
+            console.log('Page loaded, starting 3D Map...');
             new FlatMap3D();
+        });
+
+        // Error handling
+        window.addEventListener('error', (e) => {
+            console.error('Global error:', e.error);
+            document.getElementById('loading').innerHTML = '<div style="color: red;">Error: ' + e.error.message + '</div>';
         });
     </script>
 </body>
