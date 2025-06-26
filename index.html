@@ -143,8 +143,7 @@
 
         <div id="controls">
             <h4>Controls:</h4>
-            <p>• Shift: Lock mouse cursor</p>
-            <p>• Mouse: Look around</p>
+            <p>• Arrow Keys / Q,E: Look around</p>
             <p>• WASD: Move</p>
             <p>• Space: Jump</p>
             <p>• R: Reset view</p>
@@ -266,9 +265,21 @@
                         this.jumpSpeed = 0.4;
                         this.isGrounded = false;
                     }
-                    // Add Shift to lock mouse cursor
-                    if (e.code === 'ShiftLeft' && !this.isPointerLocked) {
-                        this.renderer.domElement.requestPointerLock();
+                    
+                    // Keyboard turning controls
+                    if (e.code === 'ArrowLeft' || e.code === 'KeyQ') {
+                        this.camera.rotation.y += 0.1; // Turn left
+                    }
+                    if (e.code === 'ArrowRight' || e.code === 'KeyE') {
+                        this.camera.rotation.y -= 0.1; // Turn right
+                    }
+                    if (e.code === 'ArrowUp') {
+                        this.camera.rotation.x += 0.05; // Look up
+                        this.camera.rotation.x = Math.min(Math.PI/2, this.camera.rotation.x);
+                    }
+                    if (e.code === 'ArrowDown') {
+                        this.camera.rotation.x -= 0.05; // Look down
+                        this.camera.rotation.x = Math.max(-Math.PI/2, this.camera.rotation.x);
                     }
                 });
 
@@ -283,20 +294,20 @@
                     }
                 });*/
 
-                document.addEventListener('pointerlockchange', () => {
+                /*document.addEventListener('pointerlockchange', () => {
                     this.isPointerLocked = document.pointerLockElement === this.renderer.domElement;
                     document.getElementById('crosshair').style.display = this.isPointerLocked ? 'block' : 'none';
-                });
+                });*/
 
                 // Mouse movement
-                document.addEventListener('mousemove', (e) => {
+                /*document.addEventListener('mousemove', (e) => {
                     if (this.isPointerLocked) {
                         const sensitivity = 0.002;
                         this.camera.rotation.y -= e.movementX * sensitivity;
                         this.camera.rotation.x -= e.movementY * sensitivity;
                         this.camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.camera.rotation.x));
                     }
-                });
+                });*/
 
                 // Window resize
                 window.addEventListener('resize', () => {
