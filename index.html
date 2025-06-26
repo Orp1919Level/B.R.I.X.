@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Flat Map - 20x20 Render Distance</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 14px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 12px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+
+        #stats {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 10px;
+            font-size: 12px;
+            z-index: 100;
+            backdrop-filter: blur(10px);
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 18px;
+            z-index: 200;
+        }
+
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top: 3px solid white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            Generating 3D Map...
+        </div>
+        
+        <div id="info">
+            <h3>🟫 Minecraft World</h3>
+            <p>Render Distance: 30x30</p>
+            <p>Total Chunks: <span id="tileCount">900</span></p>
+            <p>Position: <span id="cameraPos">0, 0, 0</span></p>
+            <p>Grounded: <span id="grounded">Yes</span></p>
+        </div>
+
+        <div id="controls">
+            <h4>Controls:</h4>
+            <p>• Click to lock mouse cursor</p>
+            <p>• Mouse: Look around</p>
+            <p>• WASD: Move</p>
+            <p>• Space: Jump</p>
+            <p>• R: Reset view</p>
+        </div>
+
+        <div id="stats">
+            <p>FPS: <span id="fps">60</span></p>
+            <p>Triangles: <span id="triangles">0</span></p>
+            <p>Draw Calls: <span id="drawCalls">0</span></p>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        class FlatMap3D {
+            constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.controls = null;
+                
+                this.renderDistance = 30; // Changed from 100 to 30
+                this.tileSize = 10;
+                this.tiles = new Map();
+                this.centerX = 0;
+                this.centerZ = 0;
+                
+                this.keys = {};
+                this.moveSpeed = 0.3;
+                this.jumpSpeed = 0;
+                this.gravity = -0.02;
+                this.isGrounded = false;
+                this.playerHeight = 3;
+                this.groundLevel = 0;
+                
+                this.lastTime = 0;
+                this.frameCount = 0;
+                this.lastFPSUpdate = 0;
+                
+                this.isPointerLocked = false;
+
+                this.groundHeights = new Map();
+                this.collisionObjects = [];
+                
+                this.init();
+            }
+
+            init() {
+                this.setupScene();
+                this.setupCamera();
+                this.setupRenderer();
+                this.setupLighting();
+                this.setupEventListeners();
+                this.generateInitialMap();
+                this.animate();
+                
+                // Hide loading screen
+                document.getElementById('loading').style.display = 'none';
+            }
+
+            setupScene() {
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0x87CEEB); // Minecraft sky blue
+                this.scene.fog = new THREE.Fog(0x87CEEB, 100, 300); // Reduced from 200, 800
+            }
+
+            setupCamera() {
+                this.camera = new THREE.PerspectiveCamera(
+                    75,
+                    window.innerWidth / window.innerHeight,
+                    0.1,
+                    1000
+                );
+                this.camera.position.set(0, 30, 30);
+                this.camera.lookAt(0, 0, 0);
+            }
+
+            setupRenderer() {
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.shadowMap.enabled = true;
+                this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                document.getElementById('container').appendChild(this.renderer.domElement);
+            }
+
+            setupLighting() {
+                // Ambient light
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+                this.scene.add(ambientLight);
+
+                // Directional light (sun)
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(50, 100, 50);
+                directionalLight.castShadow = true;
+                directionalLight.shadow.mapSize.width = 2048;
+                directionalLight.shadow.mapSize.height = 2048;
+                directionalLight.shadow.camera.near = 0.5;
+                directionalLight.shadow.camera.far = 500;
+                directionalLight.shadow.camera.left = -100;
+                directionalLight.shadow.camera.right = 100;
+                directionalLight.shadow.camera.top = 100;
+                directionalLight.shadow.camera.bottom = -100;
+                this.scene.add(directionalLight);
+            }
+
+            setupEventListeners() {
+                // Keyboard events
+                document.addEventListener('keydown', (e) => {
+                    this.keys[e.code] = true;
+                    if (e.code === 'KeyR') {
+                        this.resetCamera();
+                    }
+                    if (e.code === 'Space' && this.isGrounded) {
+                        this.jumpSpeed = 0.4; // Jump height
+                        this.isGrounded = false;
+                    }
+                });
+
+                document.addEventListener('keyup', (e) => {
+                    this.keys[e.code] = false;
+                });
+
+                // Pointer lock for mouse look
+                document.addEventListener('click', () => {
+                    if (!this.isPointerLocked) {
+                        this.renderer.domElement.requestPointerLock();
+                    }
+                });
+
+                document.addEventListener('pointerlockchange', () => {
+                    this.isPointerLocked = document.pointerLockElement === this.renderer.domElement;
+                });
+
+                // Mouse movement for looking around
+                document.addEventListener('mousemove', (e) => {
+                    if (this.isPointerLocked) {
+                        const sensitivity = 0.002;
+                        this.camera.rotation.y -= e.movementX * sensitivity;
+                        this.camera.rotation.x -= e.movementY * sensitivity;
+                        this.camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.camera.rotation.x));
+                    }
+                });
+
+                // Window resize
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+            }
+
+            generateInitialMap() {
+                const halfDistance = Math.floor(this.renderDistance / 2);
+                
+                for (let x = -halfDistance; x < halfDistance; x++) {
+                    for (let z = -halfDistance; z < halfDistance; z++) {
+                        this.createTile(x, z);
+                    }
+                }
+            }
+
+            createTile(x, z) {
+                const key = `${x},${z}`;
+                if (this.tiles.has(key)) return;
+
+                // Create Minecraft-style block terrain
+                const geometry = new THREE.BoxGeometry(this.tileSize, 2, this.tileSize);
+                
+                // Minecraft block colors
+                const blockTypes = [
+                    0x7CB342, // Grass green
+                    0x8BC34A, // Light green
+                    0x689F38, // Dark green
+                    0x558B2F, // Forest green
+                ];
+                
+                // Get consistent height
+                const height = this.getGroundHeight(x * this.tileSize, z * this.tileSize) - 1;
+                
+                const color = blockTypes[Math.floor(Math.random() * blockTypes.length)];
+                const material = new THREE.MeshLambertMaterial({ 
+                    color: color,
+                    wireframe: false
+                });
+
+                // Create mesh
+                const tile = new THREE.Mesh(geometry, material);
+                tile.position.set(x * this.tileSize, height, z * this.tileSize);
+                tile.receiveShadow = true;
+                tile.castShadow = true;
+
+                // Add Minecraft-style trees occasionally
+                if (Math.random() < 0.05) {
+                    this.createTree(x * this.tileSize, height + 1, z * this.tileSize);
+                }
+
+                // Add random blocks/structures
+                if (Math.random() < 0.03) {
+                    const blockGeometry = new THREE.BoxGeometry(1, 1, 1);
+                    const blockMaterial = new THREE.MeshLambertMaterial({ 
+                        color: Math.random() < 0.5 ? 0x795548 : 0x607D8B
+                    });
+                    const block = new THREE.Mesh(blockGeometry, blockMaterial);
+                    const blockX = x * this.tileSize + (Math.random() - 0.5) * this.tileSize;
+                    const blockZ = z * this.tileSize + (Math.random() - 0.5) * this.tileSize;
+                    const blockY = height + 2 + Math.random() * 2;
+                    
+                    block.position.set(blockX, blockY, blockZ);
+                    block.castShadow = true;
+                    block.receiveShadow = true;
+                    this.scene.add(block);
+                    
+                    // Add to collision objects
+                    this.collisionObjects.push({
+                        x: blockX,
+                        z: blockZ,
+                        y: blockY,
+                        width: 1,
+                        height: 1,
+                        depth: 1
+                    });
+                }
+
+                this.scene.add(tile);
+                this.tiles.set(key, tile);
+            }
+
+            createTree(x, y, z) {
+                // Tree trunk
+                const trunkGeometry = new THREE.BoxGeometry(1, 4, 1);
+                const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8D6E63 });
+                const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+                trunk.position.set(x, y + 2, z);
+                trunk.castShadow = true;
+                this.scene.add(trunk);
+
+                // Tree leaves
+                const leavesGeometry = new THREE.BoxGeometry(3, 3, 3);
+                const leavesMaterial = new THREE.MeshLambertMaterial({ color: 0x4CAF50 });
+                const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
+                leaves.position.set(x, y + 5, z);
+                leaves.castShadow = true;
+                this.scene.add(leaves);
+                
+                // Add tree collision
+                this.collisionObjects.push({
+                    x: x,
+                    z: z,
+                    y: y,
+                    width: 1,
+                    height: 6,
+                    depth: 1
+                });
+            }
+
+            getGroundHeight(x, z) {
+                const tileX = Math.floor(x / this.tileSize);
+                const tileZ = Math.floor(z / this.tileSize);
+                const key = `${tileX},${tileZ}`;
+                
+                if (!this.groundHeights.has(key)) {
+                    const noise = (Math.sin(tileX * 0.1) + Math.cos(tileZ * 0.1)) * 2;
+                    const height = Math.max(0, 1 + noise);
+                    this.groundHeights.set(key, height);
+                }
+                
+                return this.groundHeights.get(key) + 1; // +1 for block height
+            }
+
+            checkCollision(newX, newZ, playerRadius = 0.5) {
+                for (let obj of this.collisionObjects) {
+                    const dx = Math.abs(newX - obj.x);
+                    const dz = Math.abs(newZ - obj.z);
+                    
+                    if (dx < (obj.width/2 + playerRadius) && dz < (obj.depth/2 + playerRadius)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            handleMovement() {
+                // Apply gravity
+                this.jumpSpeed += this.gravity;
+                this.camera.position.y += this.jumpSpeed;
+                
+                // Ground collision
+                const groundY = this.getGroundHeight(this.camera.position.x, this.camera.position.z) + this.playerHeight;
+                if (this.camera.position.y <= groundY) {
+                    this.camera.position.y = groundY;
+                    this.jumpSpeed = 0;
+                    this.isGrounded = true;
+                } else {
+                    this.isGrounded = false;
+                }
+                
+                // Horizontal movement with collision detection
+                const direction = new THREE.Vector3();
+                const moveVector = new THREE.Vector3();
+                
+                if (this.keys['KeyW']) {
+                    this.camera.getWorldDirection(direction);
+                    direction.y = 0;
+                    direction.normalize();
+                    moveVector.add(direction);
+                }
+                
+                if (this.keys['KeyS']) {
+                    this.camera.getWorldDirection(direction);
+                    direction.y = 0;
+                    direction.normalize();
+                    moveVector.sub(direction);
+                }
+                
+                if (this.keys['KeyA']) {
+                    this.camera.getWorldDirection(direction);
+                    const left = new THREE.Vector3().crossVectors(this.camera.up, direction);
+                    moveVector.add(left);
+                }
+                
+                if (this.keys['KeyD']) {
+                    this.camera.getWorldDirection(direction);
+                    const right = new THREE.Vector3().crossVectors(direction, this.camera.up);
+                    moveVector.add(right);
+                }
+                
+                moveVector.normalize();
+                moveVector.multiplyScalar(this.moveSpeed);
+                
+                // Check collision before moving
+                const newX = this.camera.position.x + moveVector.x;
+                const newZ = this.camera.position.z + moveVector.z;
+                
+                if (!this.checkCollision(newX, this.camera.position.z)) {
+                    this.camera.position.x = newX;
+                }
+                if (!this.checkCollision(this.camera.position.x, newZ)) {
+                    this.camera.position.z = newZ;
+                }
+            }
+
+            resetCamera() {
+                this.camera.position.set(0, 30, 30);
+                this.camera.rotation.set(0, 0, 0);
+                this.camera.lookAt(0, 0, 0);
+            }
+
+            updateUI() {
+                const pos = this.camera.position;
+                document.getElementById('cameraPos').textContent = 
+                    `${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}`;
+                
+                document.getElementById('tileCount').textContent = this.tiles.size;
+                document.getElementById('grounded').textContent = this.isGrounded ? 'Yes' : 'No';
+                
+                // Update stats
+                const info = this.renderer.info;
+                document.getElementById('triangles').textContent = info.render.triangles;
+                document.getElementById('drawCalls').textContent = info.render.calls;
+            }
+
+            updateFPS(currentTime) {
+                this.frameCount++;
+                if (currentTime - this.lastFPSUpdate >= 1000) {
+                    const fps = Math.round((this.frameCount * 1000) / (currentTime - this.lastFPSUpdate));
+                    document.getElementById('fps').textContent = fps;
+                    this.frameCount = 0;
+                    this.lastFPSUpdate = currentTime;
+                }
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                
+                const currentTime = performance.now();
+                this.updateFPS(currentTime);
+                
+                this.handleMovement();
+                this.updateMap();
+                this.updateUI();
+                
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+
+        // Initialize the 3D map when the page loads
+        window.addEventListener('load', () => {
+            new FlatMap3D();
+        });
+    </script>
+</body>
+</html>
