@@ -131,7 +131,7 @@
             <div id="loadingProgress">0%</div>
         </div>
         
-        <div class="crosshair" id="crosshair" style="display: none;"></div>
+        <div class="crosshair" id="crosshair" style="display: block;"></div>
         
         <div id="info">
             <h3>🟫 Minecraft World</h3>
@@ -143,8 +143,8 @@
 
         <div id="controls">
             <h4>Controls:</h4>
-            <p>• Arrow Keys / Q,E: Look left/right</p>
-            <p>• 1,3 / Up,Down Arrows: Look up/down</p>
+            <p>• Hold Q,E / Arrow Keys: Look left/right</p>
+            <p>• Hold 1,3 / Up,Down: Look up/down</p>
             <p>• WASD: Move</p>
             <p>• Space: Jump</p>
             <p>• R: Reset view</p>
@@ -165,7 +165,7 @@
                 this.camera = null;
                 this.renderer = null;
                 
-                this.renderDistance = 15; // Reduced to 15x15 for better performance
+                this.renderDistance = 15;
                 this.tileSize = 10;
                 this.tiles = new Map();
                 
@@ -176,11 +176,15 @@
                 this.isGrounded = false;
                 this.playerHeight = 3;
                 
+                // Camera rotation variables
+                this.cameraRotationY = 0; // Horizontal rotation (yaw)
+                this.cameraRotationX = 0; // Vertical rotation (pitch)
+                this.turnSpeed = 0.03; // Smooth turning speed
+                
                 this.lastTime = 0;
                 this.frameCount = 0;
                 this.lastFPSUpdate = 0;
                 
-                this.isPointerLocked = false;
                 this.groundHeights = new Map();
                 this.collisionObjects = [];
                 
@@ -199,7 +203,6 @@
                     this.setupLighting();
                     this.setupEventListeners();
                     
-                    // Generate map with progress tracking
                     setTimeout(() => {
                         this.generateInitialMap();
                         this.finishLoading();
@@ -227,7 +230,6 @@
                     1000
                 );
                 this.camera.position.set(0, 15, 15);
-                this.camera.lookAt(0, 0, 0);
                 console.log('Camera created');
             }
 
@@ -241,11 +243,9 @@
             }
 
             setupLighting() {
-                // Ambient light
                 const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
                 this.scene.add(ambientLight);
 
-                // Directional light (sun)
                 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
                 directionalLight.position.set(50, 100, 50);
                 directionalLight.castShadow = true;
@@ -256,7 +256,6 @@
             }
 
             setupEventListeners() {
-                // Keyboard events
                 document.addEventListener('keydown', (e) => {
                     this.keys[e.code] = true;
                     if (e.code === 'KeyR') {
@@ -266,54 +265,12 @@
                         this.jumpSpeed = 0.4;
                         this.isGrounded = false;
                     }
-                    
-                    // Keyboard turning controls - fixed rotation system
-                    if (e.code === 'ArrowLeft' || e.code === 'KeyQ') {
-                        this.camera.rotation.y += 0.1; // Turn left
-                    }
-                    if (e.code === 'ArrowRight' || e.code === 'KeyE') {
-                        this.camera.rotation.y -= 0.1; // Turn right
-                    }
-                    if (e.code === 'ArrowUp' || e.code === 'Digit1') {
-                        this.camera.rotation.x += 0.05; // Look up
-                        this.camera.rotation.x = Math.min(Math.PI/3, this.camera.rotation.x); // Limit upward look
-                    }
-                    if (e.code === 'ArrowDown' || e.code === 'Digit3') {
-                        this.camera.rotation.x -= 0.05; // Look down
-                        this.camera.rotation.x = Math.max(-Math.PI/3, this.camera.rotation.x); // Limit downward look
-                    }
-
-                    // Keep camera level (prevent rolling)
-                    this.camera.rotation.z = 0;
                 });
 
                 document.addEventListener('keyup', (e) => {
                     this.keys[e.code] = false;
                 });
 
-                // Pointer lock
-                /*document.addEventListener('click', () => {
-                    if (!this.isPointerLocked) {
-                        this.renderer.domElement.requestPointerLock();
-                    }
-                });*/
-
-                /*document.addEventListener('pointerlockchange', () => {
-                    this.isPointerLocked = document.pointerLockElement === this.renderer.domElement;
-                    document.getElementById('crosshair').style.display = this.isPointerLocked ? 'block' : 'none';
-                });*/
-
-                // Mouse movement
-                /*document.addEventListener('mousemove', (e) => {
-                    if (this.isPointerLocked) {
-                        const sensitivity = 0.002;
-                        this.camera.rotation.y -= e.movementX * sensitivity;
-                        this.camera.rotation.x -= e.movementY * sensitivity;
-                        this.camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.camera.rotation.x));
-                    }
-                });*/
-
-                // Window resize
                 window.addEventListener('resize', () => {
                     this.camera.aspect = window.innerWidth / window.innerHeight;
                     this.camera.updateProjectionMatrix();
@@ -321,6 +278,30 @@
                 });
 
                 console.log('Event listeners setup complete');
+            }
+
+            handleCameraRotation() {
+                // Smooth continuous rotation while keys are held
+                if (this.keys['ArrowLeft'] || this.keys['KeyQ']) {
+                    this.cameraRotationY += this.turnSpeed; // Turn left
+                }
+                if (this.keys['ArrowRight'] || this.keys['KeyE']) {
+                    this.cameraRotationY -= this.turnSpeed; // Turn right
+                }
+                if (this.keys['ArrowUp'] || this.keys['Digit1']) {
+                    this.cameraRotationX += this.turnSpeed * 0.7; // Look up (slower)
+                    this.cameraRotationX = Math.min(Math.PI/3, this.cameraRotationX);
+                }
+                if (this.keys['ArrowDown'] || this.keys['Digit3']) {
+                    this.cameraRotationX -= this.turnSpeed * 0.7; // Look down (slower)
+                    this.cameraRotationX = Math.max(-Math.PI/3, this.cameraRotationX);
+                }
+
+                // Apply rotations to camera with auto-leveling
+                this.camera.rotation.order = 'YXZ'; // Set rotation order
+                this.camera.rotation.y = this.cameraRotationY;
+                this.camera.rotation.x = this.cameraRotationX;
+                this.camera.rotation.z = 0; // Force level (no roll/tilt)
             }
 
             generateInitialMap() {
@@ -333,7 +314,6 @@
                         this.createTile(x, z);
                         tilesCreated++;
                         
-                        // Update progress
                         this.loadingProgress = Math.floor((tilesCreated / this.totalTilesToLoad) * 100);
                         document.getElementById('loadingProgress').textContent = this.loadingProgress + '%';
                     }
@@ -345,13 +325,11 @@
                 const key = `${x},${z}`;
                 if (this.tiles.has(key)) return;
 
-                // Create simple grass block
                 const geometry = new THREE.BoxGeometry(this.tileSize, 2, this.tileSize);
                 const material = new THREE.MeshLambertMaterial({ 
-                    color: 0x7CB342 // Grass green
+                    color: 0x7CB342
                 });
 
-                // Get height
                 const height = this.getGroundHeight(x * this.tileSize, z * this.tileSize) - 1;
                 
                 const tile = new THREE.Mesh(geometry, material);
@@ -359,7 +337,6 @@
                 tile.receiveShadow = true;
                 tile.castShadow = true;
 
-                // Add occasional trees
                 if (Math.random() < 0.1) {
                     this.createTree(x * this.tileSize, height + 1, z * this.tileSize);
                 }
@@ -369,7 +346,6 @@
             }
 
             createTree(x, y, z) {
-                // Simple tree trunk
                 const trunkGeometry = new THREE.BoxGeometry(1, 3, 1);
                 const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8D6E63 });
                 const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
@@ -377,7 +353,6 @@
                 trunk.castShadow = true;
                 this.scene.add(trunk);
 
-                // Tree leaves
                 const leavesGeometry = new THREE.BoxGeometry(2, 2, 2);
                 const leavesMaterial = new THREE.MeshLambertMaterial({ color: 0x4CAF50 });
                 const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
@@ -385,7 +360,6 @@
                 leaves.castShadow = true;
                 this.scene.add(leaves);
                 
-                // Add collision
                 this.collisionObjects.push({
                     x: x, z: z, y: y,
                     width: 1, height: 4, depth: 1
@@ -466,7 +440,6 @@
                 moveVector.normalize();
                 moveVector.multiplyScalar(this.moveSpeed);
                 
-                // Apply movement with collision
                 const newX = this.camera.position.x + moveVector.x;
                 const newZ = this.camera.position.z + moveVector.z;
                 
@@ -480,7 +453,9 @@
 
             resetCamera() {
                 this.camera.position.set(0, 15, 15);
-                this.camera.rotation.set(0, 0, 0); // Reset all rotations
+                this.cameraRotationY = 0;
+                this.cameraRotationX = 0;
+                this.camera.rotation.set(0, 0, 0);
                 this.jumpSpeed = 0;
             }
 
@@ -518,6 +493,7 @@
                 const currentTime = performance.now();
                 this.updateFPS(currentTime);
                 
+                this.handleCameraRotation(); // Handle smooth camera rotation
                 this.handleMovement();
                 this.updateUI();
                 
@@ -525,13 +501,11 @@
             }
         }
 
-        // Initialize when page loads
         window.addEventListener('load', () => {
             console.log('Page loaded, starting 3D Map...');
             new FlatMap3D();
         });
 
-        // Error handling
         window.addEventListener('error', (e) => {
             console.error('Global error:', e.error);
             document.getElementById('loading').innerHTML = '<div style="color: red;">Error: ' + e.error.message + '</div>';
