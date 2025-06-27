@@ -582,17 +582,8 @@
                     this.savedChunks.set(key, chunkData);
                 }
 
-                // Create terrain
-                const geometry = new THREE.BoxGeometry(this.tileSize, 2, this.tileSize);
-                const material = new THREE.MeshLambertMaterial({ color: chunkData.color });
-
-                const tile = new THREE.Mesh(geometry, material);
-                tile.position.set(x * this.tileSize, chunkData.height, z * this.tileSize);
-                tile.receiveShadow = true;
-                tile.castShadow = true;
-
-                this.scene.add(tile);
-                chunkObjects.push(tile);
+                // Create terrain with cave openings
+                this.createTerrainWithCaves(x, z, chunkData, chunkObjects);
 
                 // Add features
                 chunkData.features.forEach(feature => {
@@ -611,6 +602,51 @@
                 this.tiles.set(key, chunkData);
                 this.tileObjects.set(key, chunkObjects);
                 this.totalChunksGenerated++;
+            }
+
+            createTerrainWithCaves(chunkX, chunkZ, chunkData, chunkObjects) {
+                const baseX = chunkX * this.tileSize;
+                const baseZ = chunkZ * this.tileSize;
+                
+                // Create terrain in smaller segments to allow for cave openings
+                for (let localX = 0; localX < this.tileSize; localX += 2) {
+                    for (let localZ = 0; localZ < this.tileSize; localZ += 2) {
+                        const worldX = baseX + localX;
+                        const worldZ = baseZ + localZ;
+                        
+                        // Check if this surface location should have a cave opening
+                        const surfaceY = chunkData.height;
+                        let hasCaveOpening = false;
+                        
+                        // Check multiple depths to see if there's a cave system below
+                        for (let checkY = surfaceY; checkY >= surfaceY - 10; checkY -= 2) {
+                            if (this.isCave(worldX, checkY, worldZ)) {
+                                hasCaveOpening = true;
+                                break;
+                            }
+                        }
+                        
+                        // Only create terrain block if there's no cave opening
+                        if (!hasCaveOpening) {
+                            const geometry = new THREE.BoxGeometry(2, 2, 2);
+                            const material = new THREE.MeshLambertMaterial({ color: chunkData.color });
+                            
+                            const terrainBlock = new THREE.Mesh(geometry, material);
+                            terrainBlock.position.set(worldX, surfaceY, worldZ);
+                            terrainBlock.receiveShadow = true;
+                            terrainBlock.castShadow = true;
+                            
+                            this.scene.add(terrainBlock);
+                            chunkObjects.push(terrainBlock);
+                            
+                            // Add collision for terrain
+                            this.collisionObjects.push({
+                                x: worldX, z: worldZ, y: surfaceY,
+                                width: 2, height: 2, depth: 2
+                            });
+                        }
+                    }
+                }
             }
 
             generateChunkData(x, z) {
@@ -685,29 +721,27 @@
                 const baseX = chunkX * this.tileSize;
                 const baseZ = chunkZ * this.tileSize;
 
-                // Much more sparse cave generation - only every 4 blocks
-                for (let y = 0; y >= -100; y -= 4) { // Reduced depth to -100
-                    for (let localX = 0; localX < this.tileSize; localX += 4) { // Increased spacing
-                        for (let localZ = 0; localZ < this.tileSize; localZ += 4) { // Increased spacing
+                // Generate cave system from surface down to -60
+                for (let y = 5; y >= -60; y -= 3) { // Start from surface level
+                    for (let localX = 0; localX < this.tileSize; localX += 3) {
+                        for (let localZ = 0; localZ < this.tileSize; localZ += 3) {
                             const worldX = baseX + localX;
                             const worldZ = baseZ + localZ;
                             
                             if (this.isCave(worldX, y, worldZ)) {
-                                // Cave air - no block
+                                // This is cave air - no block needed
                                 continue;
                             }
 
-                            // Only generate blocks occasionally to reduce density
-                            if (Math.random() < 0.3) { // Only 30% chance to place a block
-                                const blockType = this.getBlockType(worldX, y, worldZ);
-                                if (blockType !== 'air') {
-                                    caveBlocks.push({
-                                        x: worldX,
-                                        y: y,
-                                        z: worldZ,
-                                        type: blockType
-                                    });
-                                }
+                            // This should be solid cave wall/floor
+                            const blockType = this.getBlockType(worldX, y, worldZ);
+                            if (blockType !== 'air') {
+                                caveBlocks.push({
+                                    x: worldX,
+                                    y: y,
+                                    z: worldZ,
+                                    type: blockType
+                                });
                             }
                         }
                     }
@@ -717,20 +751,23 @@
             }
 
             isCave(x, y, z) {
-                // Much more selective cave generation
-                const scale1 = 0.03; // Reduced frequency
+                // Create more defined cave tunnels and chambers
+                const scale1 = 0.04;
                 const scale2 = 0.08;
-                const scale3 = 0.015;
+                const scale3 = 0.02;
                 
                 const noise1 = Math.sin(x * scale1) * Math.cos(y * scale1) * Math.sin(z * scale1);
                 const noise2 = Math.sin(x * scale2) * Math.cos(y * scale2) * Math.sin(z * scale2);
                 const noise3 = Math.sin(x * scale3) * Math.cos(y * scale3) * Math.sin(z * scale3);
                 
-                const combined = noise1 + noise2 * 0.3 + noise3 * 1.5;
+                const combined = noise1 + noise2 * 0.5 + noise3 * 1.2;
                 
-                // Much higher threshold for caves - fewer caves
-                const depthFactor = Math.max(0, -y / 50);
-                const threshold = 0.6 - depthFactor * 0.1; // Higher threshold = fewer caves
+                // Create horizontal cave layers
+                const layerNoise = Math.sin(y * 0.1) * 0.3;
+                
+                // More caves deeper underground
+                const depthFactor = Math.max(0, -y / 30);
+                const threshold = 0.4 - depthFactor * 0.15 + layerNoise;
                 
                 return combined > threshold;
             }
