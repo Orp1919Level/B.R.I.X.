@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Minecraft World - Saved Chunks</title>
+    <title>3D Minecraft World - Caves & Ores</title>
     <style>
         * {
             margin: 0;
@@ -134,27 +134,47 @@
             z-index: 180;
             display: none;
         }
+
+        .depth-indicator {
+            position: absolute;
+            top: 50%;
+            right: 20px;
+            transform: translateY(-50%);
+            color: white;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: bold;
+            z-index: 160;
+        }
+
+        .underground {
+            background: linear-gradient(135deg, #2c1810, #1a0f08) !important;
+        }
     </style>
 </head>
 <body>
     <div id="container">
         <div class="loading" id="loading">
             <div class="spinner"></div>
-            <div>Loading Saved World...</div>
+            <div>Loading Cave System...</div>
             <div id="loadingProgress">0%</div>
         </div>
         
         <div class="crosshair" id="crosshair" style="display: block;"></div>
         <div class="border-warning" id="borderWarning">⚠️ WORLD BORDER ⚠️</div>
+        <div class="depth-indicator" id="depthIndicator">Y: 0</div>
         
         <div id="info">
-            <h3>💾 Saved Minecraft World</h3>
+            <h3>⛏️ Minecraft Caves & Ores</h3>
             <p>World Border: <span id="worldBorder">±50</span> chunks</p>
             <p>Loaded Chunks: <span id="tileCount">0</span></p>
             <p>Saved Chunks: <span id="savedCount">0</span></p>
             <p>Position: <span id="cameraPos">0, 0, 0</span></p>
             <p>Chunk: <span id="currentChunk">0, 0</span></p>
             <p>Grounded: <span id="grounded">Yes</span></p>
+            <p>Underground: <span id="underground">No</span></p>
         </div>
 
         <div id="controls">
@@ -165,6 +185,7 @@
             <p>• Space: Jump</p>
             <p>• R: Reset view</p>
             <p>• C: Clear saved world</p>
+            <p>• F: Toggle flashlight</p>
         </div>
 
         <div id="stats">
@@ -172,12 +193,13 @@
             <p>Triangles: <span id="triangles">0</span></p>
             <p>Draw Calls: <span id="drawCalls">0</span></p>
             <p>Generated: <span id="totalGenerated">0</span></p>
+            <p>Ores Found: <span id="oresFound">0</span></p>
         </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        class SavedMinecraftWorld {
+        class MinecraftCaveWorld {
             constructor() {
                 this.scene = null;
                 this.camera = null;
@@ -185,10 +207,11 @@
                 
                 this.renderDistance = 12;
                 this.tileSize = 10;
-                this.worldBorder = 50; // World border at ±50 chunks
+                this.worldBorder = 50;
                 this.tiles = new Map();
                 this.tileObjects = new Map();
                 this.savedChunks = new Map();
+                this.caveBlocks = new Map(); // Store cave blocks separately
                 
                 this.keys = {};
                 this.moveSpeed = 0.3;
@@ -209,6 +232,7 @@
                 this.lastChunkZ = 0;
                 this.totalChunksGenerated = 0;
                 this.borderWarningShown = false;
+                this.oresFound = 0;
                 
                 this.lastTime = 0;
                 this.frameCount = 0;
@@ -216,13 +240,20 @@
                 
                 this.groundHeights = new Map();
                 this.collisionObjects = [];
+                this.caveSystem = new Map(); // 3D cave system
+                
+                // Lighting
+                this.flashlight = null;
+                this.flashlightOn = false;
+                this.ambientLight = null;
+                this.directionalLight = null;
                 
                 this.init();
             }
 
             init() {
                 try {
-                    console.log('Initializing Saved Minecraft World...');
+                    console.log('Initializing Minecraft Cave World...');
                     this.loadSavedWorld();
                     this.setupScene();
                     this.setupCamera();
@@ -244,15 +275,17 @@
 
             loadSavedWorld() {
                 try {
-                    const savedData = localStorage.getItem('minecraftWorld');
+                    const savedData = localStorage.getItem('minecraftCaveWorld');
                     if (savedData) {
                         const worldData = JSON.parse(savedData);
                         this.savedChunks = new Map(worldData.chunks || []);
-                        console.log(`Loaded ${this.savedChunks.size} saved chunks`);
+                        this.caveSystem = new Map(worldData.caves || []);
+                        console.log(`Loaded ${this.savedChunks.size} saved chunks and ${this.caveSystem.size} cave sections`);
                     }
                 } catch (error) {
                     console.error('Error loading saved world:', error);
                     this.savedChunks = new Map();
+                    this.caveSystem = new Map();
                 }
             }
 
@@ -260,21 +293,21 @@
                 try {
                     const worldData = {
                         chunks: Array.from(this.savedChunks.entries()),
+                        caves: Array.from(this.caveSystem.entries()),
                         timestamp: Date.now()
                     };
-                    localStorage.setItem('minecraftWorld', JSON.stringify(worldData));
-                    console.log(`Saved ${this.savedChunks.size} chunks to localStorage`);
+                    localStorage.setItem('minecraftCaveWorld', JSON.stringify(worldData));
+                    console.log(`Saved ${this.savedChunks.size} chunks and ${this.caveSystem.size} cave sections`);
                 } catch (error) {
                     console.error('Error saving world:', error);
                 }
             }
 
             clearSavedWorld() {
-                localStorage.removeItem('minecraftWorld');
+                localStorage.removeItem('minecraftCaveWorld');
                 this.savedChunks.clear();
+                this.caveSystem.clear();
                 console.log('Cleared saved world data');
-                
-                // Reload the page to start fresh
                 location.reload();
             }
 
@@ -306,15 +339,24 @@
             }
 
             setupLighting() {
-                const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
-                this.scene.add(ambientLight);
+                this.ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+                this.scene.add(this.ambientLight);
 
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-                directionalLight.position.set(50, 100, 50);
-                directionalLight.castShadow = true;
-                directionalLight.shadow.mapSize.width = 1024;
-                directionalLight.shadow.mapSize.height = 1024;
-                this.scene.add(directionalLight);
+                this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                this.directionalLight.position.set(50, 100, 50);
+                this.directionalLight.castShadow = true;
+                this.directionalLight.shadow.mapSize.width = 1024;
+                this.directionalLight.shadow.mapSize.height = 1024;
+                this.scene.add(this.directionalLight);
+
+                // Flashlight for caves
+                this.flashlight = new THREE.SpotLight(0xffffff, 1, 50, Math.PI / 6, 0.5);
+                this.flashlight.position.copy(this.camera.position);
+                this.flashlight.target.position.set(0, 0, -1);
+                this.scene.add(this.flashlight);
+                this.scene.add(this.flashlight.target);
+                this.flashlight.visible = false;
+
                 console.log('Lighting setup complete');
             }
 
@@ -328,6 +370,9 @@
                         if (confirm('Clear all saved world data? This cannot be undone!')) {
                             this.clearSavedWorld();
                         }
+                    }
+                    if (e.code === 'KeyF') {
+                        this.toggleFlashlight();
                     }
                     if (e.code === 'Space' && this.isGrounded) {
                         this.jumpSpeed = 0.4;
@@ -345,12 +390,49 @@
                     this.renderer.setSize(window.innerWidth, window.innerHeight);
                 });
 
-                // Auto-save every 30 seconds
                 setInterval(() => {
                     this.saveWorld();
                 }, 30000);
 
                 console.log('Event listeners setup complete');
+            }
+
+            toggleFlashlight() {
+                this.flashlightOn = !this.flashlightOn;
+                this.flashlight.visible = this.flashlightOn;
+                console.log('Flashlight:', this.flashlightOn ? 'ON' : 'OFF');
+            }
+
+            updateLighting() {
+                const isUnderground = this.camera.position.y < 5;
+                
+                if (isUnderground) {
+                    // Underground lighting
+                    this.ambientLight.intensity = 0.1;
+                    this.directionalLight.intensity = 0.2;
+                    this.scene.background = new THREE.Color(0x1a1a1a);
+                    this.scene.fog.color = new THREE.Color(0x1a1a1a);
+                    this.scene.fog.near = 10;
+                    this.scene.fog.far = 30;
+                    document.body.classList.add('underground');
+                } else {
+                    // Surface lighting
+                    this.ambientLight.intensity = 0.6;
+                    this.directionalLight.intensity = 0.8;
+                    this.scene.background = new THREE.Color(0x87CEEB);
+                    this.scene.fog.color = new THREE.Color(0x87CEEB);
+                    this.scene.fog.near = 80;
+                    this.scene.fog.far = 150;
+                    document.body.classList.remove('underground');
+                }
+
+                // Update flashlight position and direction
+                if (this.flashlightOn) {
+                    this.flashlight.position.copy(this.camera.position);
+                    const direction = new THREE.Vector3();
+                    this.camera.getWorldDirection(direction);
+                    this.flashlight.target.position.copy(this.camera.position).add(direction.multiplyScalar(10));
+                }
             }
 
             handleCameraRotation() {
@@ -395,7 +477,7 @@
             }
 
             generateInitialChunks() {
-                console.log('Generating initial chunks...');
+                console.log('Generating initial chunks with caves...');
                 const halfDistance = Math.floor(this.renderDistance / 2);
                 let chunksGenerated = 0;
                 const totalChunks = this.renderDistance * this.renderDistance;
@@ -404,6 +486,7 @@
                     for (let z = -halfDistance; z < halfDistance; z++) {
                         if (Math.abs(x) <= this.worldBorder && Math.abs(z) <= this.worldBorder) {
                             this.createChunk(x, z);
+                            this.generateCaveSystem(x, z);
                             chunksGenerated++;
                         }
                         
@@ -411,7 +494,7 @@
                         document.getElementById('loadingProgress').textContent = progress + '%';
                     }
                 }
-                console.log(`Generated ${chunksGenerated} initial chunks`);
+                console.log(`Generated ${chunksGenerated} initial chunks with cave systems`);
             }
 
             updateWorld() {
@@ -436,6 +519,7 @@
                             const key = `${x},${z}`;
                             if (!this.tiles.has(key)) {
                                 this.createChunk(x, z);
+                                this.generateCaveSystem(x, z);
                             }
                         }
                     }
@@ -468,6 +552,18 @@
                         });
                         this.tileObjects.delete(key);
                     }
+                    
+                    // Remove cave blocks too
+                    const caveObjects = this.caveBlocks.get(key);
+                    if (caveObjects) {
+                        caveObjects.forEach(obj => {
+                            this.scene.remove(obj);
+                            if (obj.geometry) obj.geometry.dispose();
+                            if (obj.material) obj.material.dispose();
+                        });
+                        this.caveBlocks.delete(key);
+                    }
+                    
                     this.tiles.delete(key);
                 });
             }
@@ -479,15 +575,11 @@
                 const chunkObjects = [];
                 let chunkData;
 
-                // Check if chunk is saved
                 if (this.savedChunks.has(key)) {
                     chunkData = this.savedChunks.get(key);
-                    console.log(`Loading saved chunk ${key}`);
                 } else {
-                    // Generate new chunk
                     chunkData = this.generateChunkData(x, z);
                     this.savedChunks.set(key, chunkData);
-                    console.log(`Generated new chunk ${key}`);
                 }
 
                 // Create terrain
@@ -502,7 +594,7 @@
                 this.scene.add(tile);
                 chunkObjects.push(tile);
 
-                // Add saved features
+                // Add features
                 chunkData.features.forEach(feature => {
                     if (feature.type === 'tree') {
                         const treeObjects = this.createTree(feature.x, feature.y, feature.z);
@@ -510,6 +602,9 @@
                     } else if (feature.type === 'rock') {
                         const rock = this.createRock(feature.x, feature.y, feature.z, feature.size);
                         chunkObjects.push(rock);
+                    } else if (feature.type === 'cave_entrance') {
+                        const entrance = this.createCaveEntrance(feature.x, feature.y, feature.z);
+                        chunkObjects.push(entrance);
                     }
                 });
 
@@ -520,12 +615,12 @@
 
             generateChunkData(x, z) {
                 const distance = Math.sqrt(x*x + z*z);
-                let color = 0x7CB342; // Default grass green
+                let color = 0x7CB342;
                 
                 if (distance > 20) {
-                    color = 0x8BC34A; // Light green for distant areas
+                    color = 0x8BC34A;
                 } else if (distance > 10) {
-                    color = 0x689F38; // Medium green
+                    color = 0x689F38;
                 }
 
                 const height = this.getGroundHeight(x * this.tileSize, z * this.tileSize) - 1;
@@ -557,53 +652,244 @@
                     });
                 }
 
+                // Generate cave entrances
+                if (Math.random() < 0.08) {
+                    features.push({
+                        type: 'cave_entrance',
+                        x: x * this.tileSize,
+                        y: height,
+                        z: z * this.tileSize
+                    });
+                }
+
                 return {
                     x, z, height, color, features,
                     generated: Date.now()
                 };
             }
 
+            generateCaveSystem(chunkX, chunkZ) {
+                const key = `${chunkX},${chunkZ}`;
+                if (this.caveSystem.has(key)) {
+                    this.loadCaveChunk(chunkX, chunkZ);
+                    return;
+                }
+
+                const caveData = this.generateCaveData(chunkX, chunkZ);
+                this.caveSystem.set(key, caveData);
+                this.createCaveBlocks(chunkX, chunkZ, caveData);
+            }
+
+            generateCaveData(chunkX, chunkZ) {
+                const caveBlocks = [];
+                const baseX = chunkX * this.tileSize;
+                const baseZ = chunkZ * this.tileSize;
+
+                // Generate cave system from surface down to -250
+                for (let y = 0; y >= -250; y -= 2) {
+                    for (let localX = 0; localX < this.tileSize; localX += 2) {
+                        for (let localZ = 0; localZ < this.tileSize; localZ += 2) {
+                            const worldX = baseX + localX;
+                            const worldZ = baseZ + localZ;
+                            
+                            if (this.isCave(worldX, y, worldZ)) {
+                                // Cave air - no block
+                                continue;
+                            }
+
+                            // Generate stone/ore blocks
+                            const blockType = this.getBlockType(worldX, y, worldZ);
+                            if (blockType !== 'air') {
+                                caveBlocks.push({
+                                    x: worldX,
+                                    y: y,
+                                    z: worldZ,
+                                    type: blockType
+                                });
+                            }
+                        }
+                    }
+                }
+
+                return { blocks: caveBlocks };
+            }
+
+            isCave(x, y, z) {
+                // 3D Perlin-like noise for cave generation
+                const scale1 = 0.05;
+                const scale2 = 0.1;
+                const scale3 = 0.02;
+                
+                const noise1 = Math.sin(x * scale1) * Math.cos(y * scale1) * Math.sin(z * scale1);
+                const noise2 = Math.sin(x * scale2) * Math.cos(y * scale2) * Math.sin(z * scale2);
+                const noise3 = Math.sin(x * scale3) * Math.cos(y * scale3) * Math.sin(z * scale3);
+                
+                const combined = noise1 + noise2 * 0.5 + noise3 * 2;
+                
+                // More caves deeper underground
+                const depthFactor = Math.max(0, -y / 100);
+                const threshold = 0.3 - depthFactor * 0.2;
+                
+                return combined > threshold;
+            }
+
+            getBlockType(x, y, z) {
+                // Ore distribution based on depth
+                const depth = -y;
+                const random = Math.random();
+                
+                // Diamond (very deep, very rare)
+                if (depth > 150 && random < 0.001) {
+                    this.oresFound++;
+                    return 'diamond';
+                }
+                
+                // Emerald (deep, rare)
+                if (depth > 100 && random < 0.002) {
+                    this.oresFound++;
+                    return 'emerald';
+                }
+                
+                // Lapis (medium depth, uncommon)
+                if (depth > 50 && depth < 150 && random < 0.005) {
+                    this.oresFound++;
+                    return 'lapis';
+                }
+                
+                // Iron (common at medium depths)
+                if (depth > 20 && depth < 100 && random < 0.01) {
+                    this.oresFound++;
+                    return 'iron';
+                }
+                
+                // Water pools (random placement)
+                if (random < 0.003) {
+                    return 'water';
+                }
+                
+                // Lava (deeper underground)
+                if (depth > 80 && random < 0.002) {
+                    return 'lava';
+                }
+                
+                // Default stone
+                return 'stone';
+            }
+
+            createCaveBlocks(chunkX, chunkZ, caveData) {
+                const key = `${chunkX},${chunkZ}`;
+                const caveObjects = [];
+
+                caveData.blocks.forEach(block => {
+                    const mesh = this.createBlock(block.x, block.y, block.z, block.type);
+                    if (mesh) {
+                        caveObjects.push(mesh);
+                    }
+                });
+
+                this.caveBlocks.set(key, caveObjects);
+            }
+
+            loadCaveChunk(chunkX, chunkZ) {
+                const key = `${chunkX},${chunkZ}`;
+                const caveData = this.caveSystem.get(key);
+                if (caveData && !this.caveBlocks.has(key)) {
+                    this.createCaveBlocks(chunkX, chunkZ, caveData);
+                }
+            }
+
+            createBlock(x, y, z, type) {
+                const geometry = new THREE.BoxGeometry(2, 2, 2);
+                let material;
+                
+                switch (type) {
+                    case 'stone':
+                        material = new THREE.MeshLambertMaterial({ color: 0x808080 });
+                        break;
+                    case 'iron':
+                        material = new THREE.MeshLambertMaterial({ color: 0xD2B48C });
+                        break;
+                    case 'diamond':
+                        material = new THREE.MeshLambertMaterial({ color: 0x00FFFF });
+                        break;
+                    case 'emerald':
+                        material = new THREE.MeshLambertMaterial({ color: 0x00FF00 });
+                        break;
+                    case 'lapis':
+                        material = new THREE.MeshLambertMaterial({ color: 0x0000FF });
+                        break;
+                    case 'water':
+                        material = new THREE.MeshLambertMaterial({ 
+                            color: 0x0077BE, 
+                            transparent: true, 
+                            opacity: 0.7 
+                        });
+                        break;
+                    case 'lava':
+                        material = new THREE.MeshLambertMaterial({ color: 0xFF4500 });
+                        // Add glow effect
+                        const light = new THREE.PointLight(0xFF4500, 0.5, 10);
+                        light.position.set(x, y, z);
+                        this.scene.add(light);
+                        break;
+                    default:
+                        return null;
+                }
+
+                const block = new THREE.Mesh(geometry, material);
+                block.position.set(x, y, z);
+                block.castShadow = true;
+                block.receiveShadow = true;
+                
+                this.scene.add(block);
+                
+                // Add collision for solid blocks
+                if (type !== 'water') {
+                    this.collisionObjects.push({
+                        x: x, z: z, y: y,
+                        width: 2, height: 2, depth: 2
+                    });
+                }
+                
+                return block;
+            }
+
             createTree(x, y, z) {
                 const treeObjects = [];
                 
-                // Bigger tree trunk - 6 blocks tall
                 const trunkGeometry = new THREE.BoxGeometry(1.5, 6, 1.5);
                 const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8D6E63 });
                 const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
-                trunk.position.set(x, y + 3, z); // Centered at 3 blocks high
+                trunk.position.set(x, y + 3, z);
                 trunk.castShadow = true;
                 this.scene.add(trunk);
                 treeObjects.push(trunk);
 
-                // Large leaf canopy - bottom layer (4x4x2)
                 const leavesGeometry1 = new THREE.BoxGeometry(4, 2, 4);
                 const leavesMaterial = new THREE.MeshLambertMaterial({ color: 0x4CAF50 });
                 const leaves1 = new THREE.Mesh(leavesGeometry1, leavesMaterial);
-                leaves1.position.set(x, y + 6.5, z); // Bottom leaf layer
+                leaves1.position.set(x, y + 6.5, z);
                 leaves1.castShadow = true;
                 this.scene.add(leaves1);
                 treeObjects.push(leaves1);
 
-                // Medium leaf layer (3x3x2)
                 const leavesGeometry2 = new THREE.BoxGeometry(3, 2, 3);
                 const leaves2 = new THREE.Mesh(leavesGeometry2, leavesMaterial);
-                leaves2.position.set(x, y + 8, z); // Middle leaf layer
+                leaves2.position.set(x, y + 8, z);
                 leaves2.castShadow = true;
                 this.scene.add(leaves2);
                 treeObjects.push(leaves2);
 
-                // Top leaf layer (2x2x1)
                 const leavesGeometry3 = new THREE.BoxGeometry(2, 1, 2);
                 const leaves3 = new THREE.Mesh(leavesGeometry3, leavesMaterial);
-                leaves3.position.set(x, y + 9, z); // Top leaf layer
+                leaves3.position.set(x, y + 9, z);
                 leaves3.castShadow = true;
                 this.scene.add(leaves3);
                 treeObjects.push(leaves3);
                 
-                // Update collision detection for bigger trees
                 this.collisionObjects.push({
                     x: x, z: z, y: y,
-                    width: 2, height: 9, depth: 2 // Bigger collision box
+                    width: 2, height: 9, depth: 2
                 });
                 
                 return treeObjects;
@@ -625,30 +911,46 @@
                 return rock;
             }
 
+            createCaveEntrance(x, y, z) {
+                const entranceGeometry = new THREE.BoxGeometry(3, 3, 1);
+                const entranceMaterial = new THREE.MeshLambertMaterial({ color: 0x2F2F2F });
+                const entrance = new THREE.Mesh(entranceGeometry, entranceMaterial);
+                entrance.position.set(x, y - 1, z);
+                entrance.castShadow = true;
+                entrance.receiveShadow = true;
+                this.scene.add(entrance);
+                
+                return entrance;
+            }
+
             getGroundHeight(x, z) {
-                const tileX = Math.floor(x / this.tileSize);
-                const tileZ = Math.floor(z / this.tileSize);
-                const key = `${tileX},${tileZ}`;
+                const worldX = x / this.tileSize;
+                const worldZ = z / this.tileSize;
                 
-                if (!this.groundHeights.has(key)) {
-                    const distance = Math.sqrt(tileX*tileX + tileZ*tileZ);
-                    const noise1 = Math.sin(tileX * 0.1) * Math.cos(tileZ * 0.1) * 2;
-                    const noise2 = Math.sin(tileX * 0.05) * Math.cos(tileZ * 0.05) * 4;
-                    const hills = Math.sin(distance * 0.02) * 3;
-                    
-                    const height = Math.max(0, 1 + noise1 + noise2 * 0.5 + hills);
-                    this.groundHeights.set(key, height);
-                }
+                const noise1 = Math.sin(worldX * 0.1) * Math.cos(worldZ * 0.1) * 1.5;
+                const noise2 = Math.sin(worldX * 0.05) * Math.cos(worldZ * 0.05) * 3;
+                const noise3 = Math.sin(worldX * 0.02) * Math.cos(worldZ * 0.02) * 6;
+                const noise4 = Math.sin(worldX * 0.2) * Math.cos(worldZ * 0.2) * 0.5;
                 
-                return this.groundHeights.get(key) + 1;
+                const combinedNoise = noise1 + noise2 * 0.5 + noise3 * 0.25 + noise4;
+                
+                const distance = Math.sqrt(worldX * worldX + worldZ * worldZ);
+                const hills = Math.sin(distance * 0.03) * 2;
+                
+                const height = Math.max(-2, 1 + combinedNoise + hills);
+                
+                return height + 1;
             }
 
             checkCollision(newX, newZ, playerRadius = 0.5) {
                 for (let obj of this.collisionObjects) {
                     const dx = Math.abs(newX - obj.x);
                     const dz = Math.abs(newZ - obj.z);
+                    const dy = Math.abs(this.camera.position.y - obj.y);
                     
-                    if (dx < (obj.width/2 + playerRadius) && dz < (obj.depth/2 + playerRadius)) {
+                    if (dx < (obj.width/2 + playerRadius) && 
+                        dz < (obj.depth/2 + playerRadius) && 
+                        dy < (obj.height/2 + this.playerHeight/2)) {
                         return true;
                     }
                 }
@@ -656,11 +958,9 @@
             }
 
             handleMovement() {
-                // Apply gravity
                 this.jumpSpeed += this.gravity;
                 this.camera.position.y += this.jumpSpeed;
                 
-                // Ground collision
                 const groundY = this.getGroundHeight(this.camera.position.x, this.camera.position.z) + this.playerHeight;
                 if (this.camera.position.y <= groundY) {
                     this.camera.position.y = groundY;
@@ -670,7 +970,6 @@
                     this.isGrounded = false;
                 }
                 
-                // Movement with world border check
                 const direction = new THREE.Vector3();
                 const moveVector = new THREE.Vector3();
                 
@@ -706,7 +1005,6 @@
                 const newX = this.camera.position.x + moveVector.x;
                 const newZ = this.camera.position.z + moveVector.z;
                 
-                // Check world border
                 if (this.checkWorldBorder(newX, this.camera.position.z) && !this.checkCollision(newX, this.camera.position.z)) {
                     this.camera.position.x = newX;
                 } else if (!this.checkWorldBorder(newX, this.camera.position.z)) {
@@ -730,7 +1028,7 @@
 
             finishLoading() {
                 document.getElementById('loading').style.display = 'none';
-                console.log('Saved world loading complete!');
+                console.log('Cave world loading complete!');
             }
 
             updateUI() {
@@ -746,6 +1044,12 @@
                 document.getElementById('totalGenerated').textContent = this.totalChunksGenerated;
                 document.getElementById('grounded').textContent = this.isGrounded ? 'Yes' : 'No';
                 document.getElementById('worldBorder').textContent = `±${this.worldBorder}`;
+                document.getElementById('underground').textContent = this.camera.position.y < 5 ? 'Yes' : 'No';
+                document.getElementById('oresFound').textContent = this.oresFound;
+                
+                // Update depth indicator
+                const yLevel = Math.floor(this.camera.position.y);
+                document.getElementById('depthIndicator').textContent = `Y: ${yLevel}`;
                 
                 const info = this.renderer.info;
                 document.getElementById('triangles').textContent = info.render.triangles;
@@ -771,6 +1075,7 @@
                 this.handleCameraRotation();
                 this.handleMovement();
                 this.updateWorld();
+                this.updateLighting();
                 this.updateUI();
                 
                 this.renderer.render(this.scene, this.camera);
@@ -778,8 +1083,8 @@
         }
 
         window.addEventListener('load', () => {
-            console.log('Page loaded, starting Saved Minecraft World...');
-            new SavedMinecraftWorld();
+            console.log('Page loaded, starting Minecraft Cave World...');
+            new MinecraftCaveWorld();
         });
 
         window.addEventListener('error', (e) => {
