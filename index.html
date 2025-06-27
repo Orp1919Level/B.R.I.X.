@@ -653,7 +653,7 @@
                 }
 
                 // Generate cave entrances
-                if (Math.random() < 0.08) {
+                if (Math.random() < 0.02) { // Reduced from 0.08 to 0.02
                     features.push({
                         type: 'cave_entrance',
                         x: x * this.tileSize,
@@ -685,10 +685,10 @@
                 const baseX = chunkX * this.tileSize;
                 const baseZ = chunkZ * this.tileSize;
 
-                // Generate cave system from surface down to -250
-                for (let y = 0; y >= -250; y -= 2) {
-                    for (let localX = 0; localX < this.tileSize; localX += 2) {
-                        for (let localZ = 0; localZ < this.tileSize; localZ += 2) {
+                // Much more sparse cave generation - only every 4 blocks
+                for (let y = 0; y >= -100; y -= 4) { // Reduced depth to -100
+                    for (let localX = 0; localX < this.tileSize; localX += 4) { // Increased spacing
+                        for (let localZ = 0; localZ < this.tileSize; localZ += 4) { // Increased spacing
                             const worldX = baseX + localX;
                             const worldZ = baseZ + localZ;
                             
@@ -697,15 +697,17 @@
                                 continue;
                             }
 
-                            // Generate stone/ore blocks
-                            const blockType = this.getBlockType(worldX, y, worldZ);
-                            if (blockType !== 'air') {
-                                caveBlocks.push({
-                                    x: worldX,
-                                    y: y,
-                                    z: worldZ,
-                                    type: blockType
-                                });
+                            // Only generate blocks occasionally to reduce density
+                            if (Math.random() < 0.3) { // Only 30% chance to place a block
+                                const blockType = this.getBlockType(worldX, y, worldZ);
+                                if (blockType !== 'air') {
+                                    caveBlocks.push({
+                                        x: worldX,
+                                        y: y,
+                                        z: worldZ,
+                                        type: blockType
+                                    });
+                                }
                             }
                         }
                     }
@@ -715,60 +717,55 @@
             }
 
             isCave(x, y, z) {
-                // 3D Perlin-like noise for cave generation
-                const scale1 = 0.05;
-                const scale2 = 0.1;
-                const scale3 = 0.02;
+                // Much more selective cave generation
+                const scale1 = 0.03; // Reduced frequency
+                const scale2 = 0.08;
+                const scale3 = 0.015;
                 
                 const noise1 = Math.sin(x * scale1) * Math.cos(y * scale1) * Math.sin(z * scale1);
                 const noise2 = Math.sin(x * scale2) * Math.cos(y * scale2) * Math.sin(z * scale2);
                 const noise3 = Math.sin(x * scale3) * Math.cos(y * scale3) * Math.sin(z * scale3);
                 
-                const combined = noise1 + noise2 * 0.5 + noise3 * 2;
+                const combined = noise1 + noise2 * 0.3 + noise3 * 1.5;
                 
-                // More caves deeper underground
-                const depthFactor = Math.max(0, -y / 100);
-                const threshold = 0.3 - depthFactor * 0.2;
+                // Much higher threshold for caves - fewer caves
+                const depthFactor = Math.max(0, -y / 50);
+                const threshold = 0.6 - depthFactor * 0.1; // Higher threshold = fewer caves
                 
                 return combined > threshold;
             }
 
             getBlockType(x, y, z) {
-                // Ore distribution based on depth
                 const depth = -y;
                 const random = Math.random();
                 
-                // Diamond (very deep, very rare)
-                if (depth > 150 && random < 0.001) {
+                // Much rarer ores
+                if (depth > 60 && random < 0.0005) { // Very rare diamonds
                     this.oresFound++;
                     return 'diamond';
                 }
                 
-                // Emerald (deep, rare)
-                if (depth > 100 && random < 0.002) {
+                if (depth > 40 && random < 0.001) { // Rare emeralds
                     this.oresFound++;
                     return 'emerald';
                 }
                 
-                // Lapis (medium depth, uncommon)
-                if (depth > 50 && depth < 150 && random < 0.005) {
+                if (depth > 20 && depth < 60 && random < 0.002) { // Uncommon lapis
                     this.oresFound++;
                     return 'lapis';
                 }
                 
-                // Iron (common at medium depths)
-                if (depth > 20 && depth < 100 && random < 0.01) {
+                if (depth > 10 && depth < 40 && random < 0.005) { // Less common iron
                     this.oresFound++;
                     return 'iron';
                 }
                 
-                // Water pools (random placement)
-                if (random < 0.003) {
+                // Much rarer fluids
+                if (random < 0.001) {
                     return 'water';
                 }
                 
-                // Lava (deeper underground)
-                if (depth > 80 && random < 0.002) {
+                if (depth > 30 && random < 0.0005) {
                     return 'lava';
                 }
                 
@@ -799,7 +796,7 @@
             }
 
             createBlock(x, y, z, type) {
-                const geometry = new THREE.BoxGeometry(2, 2, 2);
+                const geometry = new THREE.BoxGeometry(4, 4, 4); // Bigger blocks
                 let material;
                 
                 switch (type) {
@@ -827,10 +824,12 @@
                         break;
                     case 'lava':
                         material = new THREE.MeshLambertMaterial({ color: 0xFF4500 });
-                        // Add glow effect
-                        const light = new THREE.PointLight(0xFF4500, 0.5, 10);
-                        light.position.set(x, y, z);
-                        this.scene.add(light);
+                        // Only add light for lava occasionally to reduce performance impact
+                        if (Math.random() < 0.3) {
+                            const light = new THREE.PointLight(0xFF4500, 0.3, 8);
+                            light.position.set(x, y, z);
+                            this.scene.add(light);
+                        }
                         break;
                     default:
                         return null;
@@ -843,11 +842,11 @@
                 
                 this.scene.add(block);
                 
-                // Add collision for solid blocks
+                // Bigger collision boxes but fewer of them
                 if (type !== 'water') {
                     this.collisionObjects.push({
                         x: x, z: z, y: y,
-                        width: 2, height: 2, depth: 2
+                        width: 4, height: 4, depth: 4
                     });
                 }
                 
