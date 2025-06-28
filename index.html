@@ -608,21 +608,27 @@
                 const baseX = chunkX * this.tileSize;
                 const baseZ = chunkZ * this.tileSize;
                 
-                // Create terrain in smaller segments to allow for cave openings
+                // Only check for caves if we're in the negative X direction
+                const shouldCheckCaves = baseX < 10; // Small buffer zone
+                
+                // Create terrain in smaller segments
                 for (let localX = 0; localX < this.tileSize; localX += 2) {
                     for (let localZ = 0; localZ < this.tileSize; localZ += 2) {
                         const worldX = baseX + localX;
                         const worldZ = baseZ + localZ;
                         
-                        // Check if this surface location should have a cave opening
-                        const surfaceY = chunkData.height;
                         let hasCaveOpening = false;
                         
-                        // Check multiple depths to see if there's a cave system below
-                        for (let checkY = surfaceY; checkY >= surfaceY - 15; checkY -= 2) {
-                            if (this.isCave(worldX, checkY, worldZ)) {
-                                hasCaveOpening = true;
-                                break;
+                        if (shouldCheckCaves) {
+                            // Check if this surface location should have a cave opening
+                            const surfaceY = chunkData.height;
+                            
+                            // Check multiple depths to see if there's a cave system below
+                            for (let checkY = surfaceY; checkY >= surfaceY - 15; checkY -= 2) {
+                                if (this.isCave(worldX, checkY, worldZ)) {
+                                    hasCaveOpening = true;
+                                    break;
+                                }
                             }
                         }
                         
@@ -632,16 +638,16 @@
                             const material = new THREE.MeshLambertMaterial({ color: chunkData.color });
                             
                             const terrainBlock = new THREE.Mesh(geometry, material);
-                            terrainBlock.position.set(worldX, surfaceY, worldZ);
+                            terrainBlock.position.set(worldX, chunkData.height, worldZ);
                             terrainBlock.receiveShadow = true;
                             terrainBlock.castShadow = true;
                             
                             this.scene.add(terrainBlock);
                             chunkObjects.push(terrainBlock);
                             
-                            // Add collision for terrain only if it's not near a cave
+                            // Add collision for terrain
                             this.collisionObjects.push({
-                                x: worldX, z: worldZ, y: surfaceY,
+                                x: worldX, z: worldZ, y: chunkData.height,
                                 width: 2, height: 2, depth: 2
                             });
                         }
@@ -711,6 +717,11 @@
                 const baseX = chunkX * this.tileSize;
                 const baseZ = chunkZ * this.tileSize;
 
+                // Only generate cave blocks if we're in the cave area (negative X)
+                if (baseX >= 10) {
+                    return { blocks: [] }; // No caves in positive X direction
+                }
+
                 // Generate cave system from surface down to -80
                 for (let y = 5; y >= -80; y -= 2) {
                     for (let localX = 0; localX < this.tileSize; localX += 2) {
@@ -741,32 +752,46 @@
             }
 
             isCave(x, y, z) {
-                // Smoother cave generation with multiple noise layers
-                const scale1 = 0.02; // Large cave chambers
-                const scale2 = 0.05; // Medium tunnels
-                const scale3 = 0.1;  // Small details
+                // Only generate caves in the negative X direction (west of spawn)
+                if (x >= 0) {
+                    return false; // No caves in positive X direction
+                }
                 
-                // Primary cave structure
-                const noise1 = Math.sin(x * scale1) * Math.cos(y * scale1 * 0.5) * Math.sin(z * scale1);
-                const noise2 = Math.sin(x * scale2) * Math.cos(y * scale2 * 0.7) * Math.sin(z * scale2);
-                const noise3 = Math.sin(x * scale3) * Math.cos(y * scale3) * Math.sin(z * scale3);
+                // Define specific cave locations
+                const caves = [
+                    // 2 Large caves
+                    { centerX: -30, centerZ: 0, centerY: -10, sizeX: 25, sizeZ: 25, sizeY: 15, type: 'large' },
+                    { centerX: -80, centerZ: -40, centerY: -20, sizeX: 30, sizeZ: 30, sizeY: 20, type: 'large' },
+                    
+                    // 5 Small caves
+                    { centerX: -15, centerZ: 15, centerY: -5, sizeX: 8, sizeZ: 8, sizeY: 6, type: 'small' },
+                    { centerX: -25, centerZ: -25, centerY: -8, sizeX: 10, sizeZ: 10, sizeY: 8, type: 'small' },
+                    { centerX: -45, centerZ: 10, centerY: -15, sizeX: 12, sizeZ: 12, sizeY: 10, type: 'small' },
+                    { centerX: -60, centerZ: -15, centerY: -12, sizeX: 9, sizeZ: 9, sizeY: 7, type: 'small' },
+                    { centerX: -35, centerZ: 35, centerY: -18, sizeX: 11, sizeZ: 11, sizeY: 9, type: 'small' }
+                ];
                 
-                // Combine noises for smoother caves
-                const combined = noise1 * 1.2 + noise2 * 0.6 + noise3 * 0.3;
+                // Check if current position is within any cave
+                for (let cave of caves) {
+                    const distX = Math.abs(x - cave.centerX);
+                    const distZ = Math.abs(z - cave.centerZ);
+                    const distY = Math.abs(y - cave.centerY);
+                    
+                    // Create elliptical cave shape
+                    const normalizedX = distX / cave.sizeX;
+                    const normalizedZ = distZ / cave.sizeZ;
+                    const normalizedY = distY / cave.sizeY;
+                    
+                    const distance = Math.sqrt(normalizedX * normalizedX + normalizedZ * normalizedZ + normalizedY * normalizedY);
+                    
+                    if (distance <= 1.0) {
+                        // Add some noise for natural cave walls
+                        const noise = Math.sin(x * 0.1) * Math.cos(y * 0.1) * Math.sin(z * 0.1) * 0.2;
+                        return distance <= (0.9 + noise);
+                    }
+                }
                 
-                // Create horizontal cave layers with smooth transitions
-                const layerNoise = Math.sin(y * 0.05) * 0.4;
-                
-                // Vertical cave shafts
-                const verticalNoise = Math.sin(x * 0.03) * Math.cos(z * 0.03) * 0.5;
-                
-                // More caves deeper underground with smooth falloff
-                const depthFactor = Math.max(0, -y / 40) * 0.3;
-                
-                // Smooth threshold for natural cave boundaries
-                const threshold = 0.2 - depthFactor + layerNoise + verticalNoise;
-                
-                return combined > threshold;
+                return false; // No cave at this location
             }
 
             getBlockType(x, y, z) {
