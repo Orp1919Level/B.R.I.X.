@@ -718,8 +718,39 @@
                 const baseZ = chunkZ * this.tileSize;
 
                 // Only generate cave blocks if we're in the cave area (negative X)
-                if (baseX >= 10) {
-                    return { blocks: [] }; // No caves in positive X direction
+                
+                // Only generate cave blocks if this chunk contains any of our specific caves
+                const baseX = chunkX * this.tileSize;
+                const baseZ = chunkZ * this.tileSize;
+
+                // Check if this chunk intersects with any cave
+                let hasAnyCave = false;
+                const caves = [
+                    { centerX: -30, centerZ: 0, radius: 15 },
+                    { centerX: -80, centerZ: -40, radius: 18 },
+                    { centerX: -15, centerZ: 15, radius: 6 },
+                    { centerX: -25, centerZ: -25, radius: 7 },
+                    { centerX: -45, centerZ: 10, radius: 8 },
+                    { centerX: -60, centerZ: -15, radius: 6 },
+                    { centerX: -35, centerZ: 35, radius: 7 }
+                ];
+
+                for (let cave of caves) {
+                    const chunkCenterX = baseX + this.tileSize / 2;
+                    const chunkCenterZ = baseZ + this.tileSize / 2;
+                    const distToCave = Math.sqrt(
+                        (chunkCenterX - cave.centerX) ** 2 + 
+                        (chunkCenterZ - cave.centerZ) ** 2
+                    );
+                    
+                    if (distToCave <= cave.radius + this.tileSize) {
+                        hasAnyCave = true;
+                        break;
+                    }
+                }
+
+                if (!hasAnyCave) {
+                    return { blocks: [] }; // No caves in this chunk
                 }
 
                 // Generate cave system from surface down to -80
@@ -752,42 +783,30 @@
             }
 
             isCave(x, y, z) {
-                // Only generate caves in the negative X direction (west of spawn)
-                if (x >= 0) {
-                    return false; // No caves in positive X direction
-                }
-                
-                // Define specific cave locations
+                // Define exactly 7 specific cave locations
                 const caves = [
                     // 2 Large caves
-                    { centerX: -30, centerZ: 0, centerY: -10, sizeX: 25, sizeZ: 25, sizeY: 15, type: 'large' },
-                    { centerX: -80, centerZ: -40, centerY: -20, sizeX: 30, sizeZ: 30, sizeY: 20, type: 'large' },
+                    { centerX: -30, centerZ: 0, centerY: -10, radius: 15 },
+                    { centerX: -80, centerZ: -40, centerY: -20, radius: 18 },
                     
                     // 5 Small caves
-                    { centerX: -15, centerZ: 15, centerY: -5, sizeX: 8, sizeZ: 8, sizeY: 6, type: 'small' },
-                    { centerX: -25, centerZ: -25, centerY: -8, sizeX: 10, sizeZ: 10, sizeY: 8, type: 'small' },
-                    { centerX: -45, centerZ: 10, centerY: -15, sizeX: 12, sizeZ: 12, sizeY: 10, type: 'small' },
-                    { centerX: -60, centerZ: -15, centerY: -12, sizeX: 9, sizeZ: 9, sizeY: 7, type: 'small' },
-                    { centerX: -35, centerZ: 35, centerY: -18, sizeX: 11, sizeZ: 11, sizeY: 9, type: 'small' }
+                    { centerX: -15, centerZ: 15, centerY: -5, radius: 6 },
+                    { centerX: -25, centerZ: -25, centerY: -8, radius: 7 },
+                    { centerX: -45, centerZ: 10, centerY: -15, radius: 8 },
+                    { centerX: -60, centerZ: -15, centerY: -12, radius: 6 },
+                    { centerX: -35, centerZ: 35, centerY: -18, radius: 7 }
                 ];
                 
-                // Check if current position is within any cave
+                // Check if current position is within any of these specific caves
                 for (let cave of caves) {
-                    const distX = Math.abs(x - cave.centerX);
-                    const distZ = Math.abs(z - cave.centerZ);
-                    const distY = Math.abs(y - cave.centerY);
+                    const distX = x - cave.centerX;
+                    const distZ = z - cave.centerZ;
+                    const distY = y - cave.centerY;
                     
-                    // Create elliptical cave shape
-                    const normalizedX = distX / cave.sizeX;
-                    const normalizedZ = distZ / cave.sizeZ;
-                    const normalizedY = distY / cave.sizeY;
+                    const distance = Math.sqrt(distX * distX + distZ * distZ + distY * distY);
                     
-                    const distance = Math.sqrt(normalizedX * normalizedX + normalizedZ * normalizedZ + normalizedY * normalizedY);
-                    
-                    if (distance <= 1.0) {
-                        // Add some noise for natural cave walls
-                        const noise = Math.sin(x * 0.1) * Math.cos(y * 0.1) * Math.sin(z * 0.1) * 0.2;
-                        return distance <= (0.9 + noise);
+                    if (distance <= cave.radius) {
+                        return true;
                     }
                 }
                 
