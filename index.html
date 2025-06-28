@@ -211,7 +211,7 @@
                 this.tiles = new Map();
                 this.tileObjects = new Map();
                 this.savedChunks = new Map();
-                this.caveBlocks = new Map(); // Store cave blocks separately
+                this.caveBlocks = new Map();
                 
                 this.keys = {};
                 this.moveSpeed = 0.3;
@@ -240,7 +240,7 @@
                 
                 this.groundHeights = new Map();
                 this.collisionObjects = [];
-                this.caveSystem = new Map(); // 3D cave system
+                this.caveSystem = new Map();
                 
                 // Lighting
                 this.flashlight = null;
@@ -619,7 +619,7 @@
                         let hasCaveOpening = false;
                         
                         // Check multiple depths to see if there's a cave system below
-                        for (let checkY = surfaceY; checkY >= surfaceY - 10; checkY -= 2) {
+                        for (let checkY = surfaceY; checkY >= surfaceY - 15; checkY -= 2) {
                             if (this.isCave(worldX, checkY, worldZ)) {
                                 hasCaveOpening = true;
                                 break;
@@ -639,7 +639,7 @@
                             this.scene.add(terrainBlock);
                             chunkObjects.push(terrainBlock);
                             
-                            // Add collision for terrain
+                            // Add collision for terrain only if it's not near a cave
                             this.collisionObjects.push({
                                 x: worldX, z: worldZ, y: surfaceY,
                                 width: 2, height: 2, depth: 2
@@ -688,16 +688,6 @@
                     });
                 }
 
-                // Generate cave entrances
-                if (Math.random() < 0.02) { // Reduced from 0.08 to 0.02
-                    features.push({
-                        type: 'cave_entrance',
-                        x: x * this.tileSize,
-                        y: height,
-                        z: z * this.tileSize
-                    });
-                }
-
                 return {
                     x, z, height, color, features,
                     generated: Date.now()
@@ -721,10 +711,10 @@
                 const baseX = chunkX * this.tileSize;
                 const baseZ = chunkZ * this.tileSize;
 
-                // Generate cave system from surface down to -60
-                for (let y = 5; y >= -60; y -= 3) { // Start from surface level
-                    for (let localX = 0; localX < this.tileSize; localX += 3) {
-                        for (let localZ = 0; localZ < this.tileSize; localZ += 3) {
+                // Generate cave system from surface down to -80
+                for (let y = 5; y >= -80; y -= 2) {
+                    for (let localX = 0; localX < this.tileSize; localX += 2) {
+                        for (let localZ = 0; localZ < this.tileSize; localZ += 2) {
                             const worldX = baseX + localX;
                             const worldZ = baseZ + localZ;
                             
@@ -751,23 +741,30 @@
             }
 
             isCave(x, y, z) {
-                // Create more defined cave tunnels and chambers
-                const scale1 = 0.04;
-                const scale2 = 0.08;
-                const scale3 = 0.02;
+                // Smoother cave generation with multiple noise layers
+                const scale1 = 0.02; // Large cave chambers
+                const scale2 = 0.05; // Medium tunnels
+                const scale3 = 0.1;  // Small details
                 
-                const noise1 = Math.sin(x * scale1) * Math.cos(y * scale1) * Math.sin(z * scale1);
-                const noise2 = Math.sin(x * scale2) * Math.cos(y * scale2) * Math.sin(z * scale2);
+                // Primary cave structure
+                const noise1 = Math.sin(x * scale1) * Math.cos(y * scale1 * 0.5) * Math.sin(z * scale1);
+                const noise2 = Math.sin(x * scale2) * Math.cos(y * scale2 * 0.7) * Math.sin(z * scale2);
                 const noise3 = Math.sin(x * scale3) * Math.cos(y * scale3) * Math.sin(z * scale3);
                 
-                const combined = noise1 + noise2 * 0.5 + noise3 * 1.2;
+                // Combine noises for smoother caves
+                const combined = noise1 * 1.2 + noise2 * 0.6 + noise3 * 0.3;
                 
-                // Create horizontal cave layers
-                const layerNoise = Math.sin(y * 0.1) * 0.3;
+                // Create horizontal cave layers with smooth transitions
+                const layerNoise = Math.sin(y * 0.05) * 0.4;
                 
-                // More caves deeper underground
-                const depthFactor = Math.max(0, -y / 30);
-                const threshold = 0.4 - depthFactor * 0.15 + layerNoise;
+                // Vertical cave shafts
+                const verticalNoise = Math.sin(x * 0.03) * Math.cos(z * 0.03) * 0.5;
+                
+                // More caves deeper underground with smooth falloff
+                const depthFactor = Math.max(0, -y / 40) * 0.3;
+                
+                // Smooth threshold for natural cave boundaries
+                const threshold = 0.2 - depthFactor + layerNoise + verticalNoise;
                 
                 return combined > threshold;
             }
@@ -776,33 +773,33 @@
                 const depth = -y;
                 const random = Math.random();
                 
-                // Much rarer ores
-                if (depth > 60 && random < 0.0005) { // Very rare diamonds
+                // Ore generation with full lighting
+                if (depth > 60 && random < 0.001) {
                     this.oresFound++;
                     return 'diamond';
                 }
                 
-                if (depth > 40 && random < 0.001) { // Rare emeralds
+                if (depth > 40 && random < 0.002) {
                     this.oresFound++;
                     return 'emerald';
                 }
                 
-                if (depth > 20 && depth < 60 && random < 0.002) { // Uncommon lapis
+                if (depth > 20 && depth < 60 && random < 0.004) {
                     this.oresFound++;
                     return 'lapis';
                 }
                 
-                if (depth > 10 && depth < 40 && random < 0.005) { // Less common iron
+                if (depth > 10 && depth < 40 && random < 0.008) {
                     this.oresFound++;
                     return 'iron';
                 }
                 
-                // Much rarer fluids
-                if (random < 0.001) {
+                // Fluids
+                if (random < 0.002) {
                     return 'water';
                 }
                 
-                if (depth > 30 && random < 0.0005) {
+                if (depth > 30 && random < 0.001) {
                     return 'lava';
                 }
                 
@@ -833,7 +830,7 @@
             }
 
             createBlock(x, y, z, type) {
-                const geometry = new THREE.BoxGeometry(4, 4, 4); // Bigger blocks
+                const geometry = new THREE.BoxGeometry(2, 2, 2); // Smaller blocks for smoother caves
                 let material;
                 
                 switch (type) {
@@ -861,12 +858,10 @@
                         break;
                     case 'lava':
                         material = new THREE.MeshLambertMaterial({ color: 0xFF4500 });
-                        // Only add light for lava occasionally to reduce performance impact
-                        if (Math.random() < 0.3) {
-                            const light = new THREE.PointLight(0xFF4500, 0.3, 8);
-                            light.position.set(x, y, z);
-                            this.scene.add(light);
-                        }
+                        // Full lighting - no optimization
+                        const light = new THREE.PointLight(0xFF4500, 0.5, 12);
+                        light.position.set(x, y, z);
+                        this.scene.add(light);
                         break;
                     default:
                         return null;
@@ -879,11 +874,11 @@
                 
                 this.scene.add(block);
                 
-                // Bigger collision boxes but fewer of them
+                // Only add collision for solid blocks, not water
                 if (type !== 'water') {
                     this.collisionObjects.push({
                         x: x, z: z, y: y,
-                        width: 4, height: 4, depth: 4
+                        width: 2, height: 2, depth: 2
                     });
                 }
                 
@@ -997,7 +992,26 @@
                 this.jumpSpeed += this.gravity;
                 this.camera.position.y += this.jumpSpeed;
                 
-                const groundY = this.getGroundHeight(this.camera.position.x, this.camera.position.z) + this.playerHeight;
+                // Improved ground detection that works with caves
+                let groundY = this.getGroundHeight(this.camera.position.x, this.camera.position.z) + this.playerHeight;
+                
+                // Check if we're in a cave area - if so, don't use surface height
+                if (this.isCave(this.camera.position.x, this.camera.position.y - this.playerHeight, this.camera.position.z)) {
+                    // In cave - find the nearest solid block below
+                    let foundGround = false;
+                    for (let checkY = this.camera.position.y - this.playerHeight; checkY >= this.camera.position.y - 20; checkY -= 1) {
+                        if (!this.isCave(this.camera.position.x, checkY, this.camera.position.z)) {
+                            groundY = checkY + this.playerHeight + 1;
+                            foundGround = true;
+                            break;
+                        }
+                    }
+                    if (!foundGround) {
+                        // If no ground found nearby, allow falling
+                        groundY = this.camera.position.y - 100;
+                    }
+                }
+                
                 if (this.camera.position.y <= groundY) {
                     this.camera.position.y = groundY;
                     this.jumpSpeed = 0;
