@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Minecraft World - Caves & Ores</title>
+    <title>3D Minecraft World - Simple Terrain</title>
     <style>
         * {
             margin: 0;
@@ -148,17 +148,13 @@
             font-weight: bold;
             z-index: 160;
         }
-
-        .underground {
-            background: linear-gradient(135deg, #2c1810, #1a0f08) !important;
-        }
     </style>
 </head>
 <body>
     <div id="container">
         <div class="loading" id="loading">
             <div class="spinner"></div>
-            <div>Loading Cave System...</div>
+            <div>Loading World...</div>
             <div id="loadingProgress">0%</div>
         </div>
         
@@ -167,14 +163,12 @@
         <div class="depth-indicator" id="depthIndicator">Y: 0</div>
         
         <div id="info">
-            <h3>⛏️ Minecraft Caves & Ores</h3>
+            <h3>🌍 Minecraft World</h3>
             <p>World Border: <span id="worldBorder">±50</span> chunks</p>
             <p>Loaded Chunks: <span id="tileCount">0</span></p>
-            <p>Saved Chunks: <span id="savedCount">0</span></p>
             <p>Position: <span id="cameraPos">0, 0, 0</span></p>
             <p>Chunk: <span id="currentChunk">0, 0</span></p>
             <p>Grounded: <span id="grounded">Yes</span></p>
-            <p>Underground: <span id="underground">No</span></p>
         </div>
 
         <div id="controls">
@@ -184,8 +178,6 @@
             <p>• WASD: Move</p>
             <p>• Space: Jump</p>
             <p>• R: Reset view</p>
-            <p>• C: Clear saved world</p>
-            <p>• F: Toggle flashlight</p>
         </div>
 
         <div id="stats">
@@ -193,25 +185,22 @@
             <p>Triangles: <span id="triangles">0</span></p>
             <p>Draw Calls: <span id="drawCalls">0</span></p>
             <p>Generated: <span id="totalGenerated">0</span></p>
-            <p>Ores Found: <span id="oresFound">0</span></p>
         </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
-        class MinecraftCaveWorld {
+        class MinecraftWorld {
             constructor() {
                 this.scene = null;
                 this.camera = null;
                 this.renderer = null;
                 
-                this.renderDistance = 12;
+                this.renderDistance = 8;
                 this.tileSize = 10;
                 this.worldBorder = 50;
                 this.tiles = new Map();
                 this.tileObjects = new Map();
-                this.savedChunks = new Map();
-                this.caveBlocks = new Map();
                 
                 this.keys = {};
                 this.moveSpeed = 0.3;
@@ -232,19 +221,14 @@
                 this.lastChunkZ = 0;
                 this.totalChunksGenerated = 0;
                 this.borderWarningShown = false;
-                this.oresFound = 0;
                 
                 this.lastTime = 0;
                 this.frameCount = 0;
                 this.lastFPSUpdate = 0;
                 
-                this.groundHeights = new Map();
                 this.collisionObjects = [];
-                this.caveSystem = new Map();
                 
                 // Lighting
-                this.flashlight = null;
-                this.flashlightOn = false;
                 this.ambientLight = null;
                 this.directionalLight = null;
                 
@@ -253,8 +237,7 @@
 
             init() {
                 try {
-                    console.log('Initializing Minecraft Cave World...');
-                    this.loadSavedWorld();
+                    console.log('Initializing Minecraft World...');
                     this.setupScene();
                     this.setupCamera();
                     this.setupRenderer();
@@ -269,46 +252,8 @@
                     
                 } catch (error) {
                     console.error('Error initializing world:', error);
-                    document.getElementById('loading').innerHTML = '<div style="color: red;">Error loading world. Please refresh.</div>';
+                    document.getElementById('loading').innerHTML = '<div style="color: red;">Error loading world: ' + error.message + '</div>';
                 }
-            }
-
-            loadSavedWorld() {
-                try {
-                    const savedData = localStorage.getItem('minecraftCaveWorld');
-                    if (savedData) {
-                        const worldData = JSON.parse(savedData);
-                        this.savedChunks = new Map(worldData.chunks || []);
-                        this.caveSystem = new Map(worldData.caves || []);
-                        console.log(`Loaded ${this.savedChunks.size} saved chunks and ${this.caveSystem.size} cave sections`);
-                    }
-                } catch (error) {
-                    console.error('Error loading saved world:', error);
-                    this.savedChunks = new Map();
-                    this.caveSystem = new Map();
-                }
-            }
-
-            saveWorld() {
-                try {
-                    const worldData = {
-                        chunks: Array.from(this.savedChunks.entries()),
-                        caves: Array.from(this.caveSystem.entries()),
-                        timestamp: Date.now()
-                    };
-                    localStorage.setItem('minecraftCaveWorld', JSON.stringify(worldData));
-                    console.log(`Saved ${this.savedChunks.size} chunks and ${this.caveSystem.size} cave sections`);
-                } catch (error) {
-                    console.error('Error saving world:', error);
-                }
-            }
-
-            clearSavedWorld() {
-                localStorage.removeItem('minecraftCaveWorld');
-                this.savedChunks.clear();
-                this.caveSystem.clear();
-                console.log('Cleared saved world data');
-                location.reload();
             }
 
             setupScene() {
@@ -349,14 +294,6 @@
                 this.directionalLight.shadow.mapSize.height = 1024;
                 this.scene.add(this.directionalLight);
 
-                // Flashlight for caves
-                this.flashlight = new THREE.SpotLight(0xffffff, 1, 50, Math.PI / 6, 0.5);
-                this.flashlight.position.copy(this.camera.position);
-                this.flashlight.target.position.set(0, 0, -1);
-                this.scene.add(this.flashlight);
-                this.scene.add(this.flashlight.target);
-                this.flashlight.visible = false;
-
                 console.log('Lighting setup complete');
             }
 
@@ -365,14 +302,6 @@
                     this.keys[e.code] = true;
                     if (e.code === 'KeyR') {
                         this.resetCamera();
-                    }
-                    if (e.code === 'KeyC') {
-                        if (confirm('Clear all saved world data? This cannot be undone!')) {
-                            this.clearSavedWorld();
-                        }
-                    }
-                    if (e.code === 'KeyF') {
-                        this.toggleFlashlight();
                     }
                     if (e.code === 'Space' && this.isGrounded) {
                         this.jumpSpeed = 0.4;
@@ -390,49 +319,7 @@
                     this.renderer.setSize(window.innerWidth, window.innerHeight);
                 });
 
-                setInterval(() => {
-                    this.saveWorld();
-                }, 30000);
-
                 console.log('Event listeners setup complete');
-            }
-
-            toggleFlashlight() {
-                this.flashlightOn = !this.flashlightOn;
-                this.flashlight.visible = this.flashlightOn;
-                console.log('Flashlight:', this.flashlightOn ? 'ON' : 'OFF');
-            }
-
-            updateLighting() {
-                const isUnderground = this.camera.position.y < 5;
-                
-                if (isUnderground) {
-                    // Underground lighting
-                    this.ambientLight.intensity = 0.1;
-                    this.directionalLight.intensity = 0.2;
-                    this.scene.background = new THREE.Color(0x1a1a1a);
-                    this.scene.fog.color = new THREE.Color(0x1a1a1a);
-                    this.scene.fog.near = 10;
-                    this.scene.fog.far = 30;
-                    document.body.classList.add('underground');
-                } else {
-                    // Surface lighting
-                    this.ambientLight.intensity = 0.6;
-                    this.directionalLight.intensity = 0.8;
-                    this.scene.background = new THREE.Color(0x87CEEB);
-                    this.scene.fog.color = new THREE.Color(0x87CEEB);
-                    this.scene.fog.near = 80;
-                    this.scene.fog.far = 150;
-                    document.body.classList.remove('underground');
-                }
-
-                // Update flashlight position and direction
-                if (this.flashlightOn) {
-                    this.flashlight.position.copy(this.camera.position);
-                    const direction = new THREE.Vector3();
-                    this.camera.getWorldDirection(direction);
-                    this.flashlight.target.position.copy(this.camera.position).add(direction.multiplyScalar(10));
-                }
             }
 
             handleCameraRotation() {
@@ -477,7 +364,7 @@
             }
 
             generateInitialChunks() {
-                console.log('Generating initial chunks with caves...');
+                console.log('Generating initial chunks...');
                 const halfDistance = Math.floor(this.renderDistance / 2);
                 let chunksGenerated = 0;
                 const totalChunks = this.renderDistance * this.renderDistance;
@@ -486,7 +373,6 @@
                     for (let z = -halfDistance; z < halfDistance; z++) {
                         if (Math.abs(x) <= this.worldBorder && Math.abs(z) <= this.worldBorder) {
                             this.createChunk(x, z);
-                            this.generateCaveSystem(x, z);
                             chunksGenerated++;
                         }
                         
@@ -494,7 +380,7 @@
                         document.getElementById('loadingProgress').textContent = progress + '%';
                     }
                 }
-                console.log(`Generated ${chunksGenerated} initial chunks with cave systems`);
+                console.log(`Generated ${chunksGenerated} initial chunks`);
             }
 
             updateWorld() {
@@ -519,7 +405,6 @@
                             const key = `${x},${z}`;
                             if (!this.tiles.has(key)) {
                                 this.createChunk(x, z);
-                                this.generateCaveSystem(x, z);
                             }
                         }
                     }
@@ -553,17 +438,6 @@
                         this.tileObjects.delete(key);
                     }
                     
-                    // Remove cave blocks too
-                    const caveObjects = this.caveBlocks.get(key);
-                    if (caveObjects) {
-                        caveObjects.forEach(obj => {
-                            this.scene.remove(obj);
-                            if (obj.geometry) obj.geometry.dispose();
-                            if (obj.material) obj.material.dispose();
-                        });
-                        this.caveBlocks.delete(key);
-                    }
-                    
                     this.tiles.delete(key);
                 });
             }
@@ -573,17 +447,10 @@
                 if (this.tiles.has(key)) return;
 
                 const chunkObjects = [];
-                let chunkData;
+                const chunkData = this.generateChunkData(x, z);
 
-                if (this.savedChunks.has(key)) {
-                    chunkData = this.savedChunks.get(key);
-                } else {
-                    chunkData = this.generateChunkData(x, z);
-                    this.savedChunks.set(key, chunkData);
-                }
-
-                // Create terrain with cave openings
-                this.createTerrainWithCaves(x, z, chunkData, chunkObjects);
+                // Create terrain
+                this.createTerrain(x, z, chunkData, chunkObjects);
 
                 // Add features
                 chunkData.features.forEach(feature => {
@@ -593,9 +460,6 @@
                     } else if (feature.type === 'rock') {
                         const rock = this.createRock(feature.x, feature.y, feature.z, feature.size);
                         chunkObjects.push(rock);
-                    } else if (feature.type === 'cave_entrance') {
-                        const entrance = this.createCaveEntrance(feature.x, feature.y, feature.z);
-                        chunkObjects.push(entrance);
                     }
                 });
 
@@ -604,53 +468,32 @@
                 this.totalChunksGenerated++;
             }
 
-            createTerrainWithCaves(chunkX, chunkZ, chunkData, chunkObjects) {
+            createTerrain(chunkX, chunkZ, chunkData, chunkObjects) {
                 const baseX = chunkX * this.tileSize;
                 const baseZ = chunkZ * this.tileSize;
                 
-                // Only check for caves if we're in the negative X direction
-                const shouldCheckCaves = baseX < 10; // Small buffer zone
-                
-                // Create terrain in smaller segments
+                // Create terrain blocks
                 for (let localX = 0; localX < this.tileSize; localX += 2) {
                     for (let localZ = 0; localZ < this.tileSize; localZ += 2) {
                         const worldX = baseX + localX;
                         const worldZ = baseZ + localZ;
                         
-                        let hasCaveOpening = false;
+                        const geometry = new THREE.BoxGeometry(2, 2, 2);
+                        const material = new THREE.MeshLambertMaterial({ color: chunkData.color });
                         
-                        if (shouldCheckCaves) {
-                            // Check if this surface location should have a cave opening
-                            const surfaceY = chunkData.height;
-                            
-                            // Check multiple depths to see if there's a cave system below
-                            for (let checkY = surfaceY; checkY >= surfaceY - 15; checkY -= 2) {
-                                if (this.isCave(worldX, checkY, worldZ)) {
-                                    hasCaveOpening = true;
-                                    break;
-                                }
-                            }
-                        }
+                        const terrainBlock = new THREE.Mesh(geometry, material);
+                        terrainBlock.position.set(worldX, chunkData.height, worldZ);
+                        terrainBlock.receiveShadow = true;
+                        terrainBlock.castShadow = true;
                         
-                        // Only create terrain block if there's no cave opening
-                        if (!hasCaveOpening) {
-                            const geometry = new THREE.BoxGeometry(2, 2, 2);
-                            const material = new THREE.MeshLambertMaterial({ color: chunkData.color });
-                            
-                            const terrainBlock = new THREE.Mesh(geometry, material);
-                            terrainBlock.position.set(worldX, chunkData.height, worldZ);
-                            terrainBlock.receiveShadow = true;
-                            terrainBlock.castShadow = true;
-                            
-                            this.scene.add(terrainBlock);
-                            chunkObjects.push(terrainBlock);
-                            
-                            // Add collision for terrain
-                            this.collisionObjects.push({
-                                x: worldX, z: worldZ, y: chunkData.height,
-                                width: 2, height: 2, depth: 2
-                            });
-                        }
+                        this.scene.add(terrainBlock);
+                        chunkObjects.push(terrainBlock);
+                        
+                        // Add collision for terrain
+                        this.collisionObjects.push({
+                            x: worldX, z: worldZ, y: chunkData.height,
+                            width: 2, height: 2, depth: 2
+                        });
                     }
                 }
             }
@@ -698,235 +541,6 @@
                     x, z, height, color, features,
                     generated: Date.now()
                 };
-            }
-
-            generateCaveSystem(chunkX, chunkZ) {
-                const key = `${chunkX},${chunkZ}`;
-                if (this.caveSystem.has(key)) {
-                    this.loadCaveChunk(chunkX, chunkZ);
-                    return;
-                }
-
-                const caveData = this.generateCaveData(chunkX, chunkZ);
-                this.caveSystem.set(key, caveData);
-                this.createCaveBlocks(chunkX, chunkZ, caveData);
-            }
-
-            generateCaveData(chunkX, chunkZ) {
-                const caveBlocks = [];
-                const baseX = chunkX * this.tileSize;
-                const baseZ = chunkZ * this.tileSize;
-
-                // Only generate cave blocks if we're in the cave area (negative X)
-                
-                // Only generate cave blocks if this chunk contains any of our specific caves
-                const baseX = chunkX * this.tileSize;
-                const baseZ = chunkZ * this.tileSize;
-
-                // Check if this chunk intersects with any cave
-                let hasAnyCave = false;
-                const caves = [
-                    { centerX: -30, centerZ: 0, radius: 15 },
-                    { centerX: -80, centerZ: -40, radius: 18 },
-                    { centerX: -15, centerZ: 15, radius: 6 },
-                    { centerX: -25, centerZ: -25, radius: 7 },
-                    { centerX: -45, centerZ: 10, radius: 8 },
-                    { centerX: -60, centerZ: -15, radius: 6 },
-                    { centerX: -35, centerZ: 35, radius: 7 }
-                ];
-
-                for (let cave of caves) {
-                    const chunkCenterX = baseX + this.tileSize / 2;
-                    const chunkCenterZ = baseZ + this.tileSize / 2;
-                    const distToCave = Math.sqrt(
-                        (chunkCenterX - cave.centerX) ** 2 + 
-                        (chunkCenterZ - cave.centerZ) ** 2
-                    );
-                    
-                    if (distToCave <= cave.radius + this.tileSize) {
-                        hasAnyCave = true;
-                        break;
-                    }
-                }
-
-                if (!hasAnyCave) {
-                    return { blocks: [] }; // No caves in this chunk
-                }
-
-                // Generate cave system from surface down to -80
-                for (let y = 5; y >= -80; y -= 2) {
-                    for (let localX = 0; localX < this.tileSize; localX += 2) {
-                        for (let localZ = 0; localZ < this.tileSize; localZ += 2) {
-                            const worldX = baseX + localX;
-                            const worldZ = baseZ + localZ;
-                            
-                            if (this.isCave(worldX, y, worldZ)) {
-                                // This is cave air - no block needed
-                                continue;
-                            }
-
-                            // This should be solid cave wall/floor
-                            const blockType = this.getBlockType(worldX, y, worldZ);
-                            if (blockType !== 'air') {
-                                caveBlocks.push({
-                                    x: worldX,
-                                    y: y,
-                                    z: worldZ,
-                                    type: blockType
-                                });
-                            }
-                        }
-                    }
-                }
-
-                return { blocks: caveBlocks };
-            }
-
-            isCave(x, y, z) {
-                // Define exactly 7 specific cave locations
-                const caves = [
-                    // 2 Large caves
-                    { centerX: -30, centerZ: 0, centerY: -10, radius: 15 },
-                    { centerX: -80, centerZ: -40, centerY: -20, radius: 18 },
-                    
-                    // 5 Small caves
-                    { centerX: -15, centerZ: 15, centerY: -5, radius: 6 },
-                    { centerX: -25, centerZ: -25, centerY: -8, radius: 7 },
-                    { centerX: -45, centerZ: 10, centerY: -15, radius: 8 },
-                    { centerX: -60, centerZ: -15, centerY: -12, radius: 6 },
-                    { centerX: -35, centerZ: 35, centerY: -18, radius: 7 }
-                ];
-                
-                // Check if current position is within any of these specific caves
-                for (let cave of caves) {
-                    const distX = x - cave.centerX;
-                    const distZ = z - cave.centerZ;
-                    const distY = y - cave.centerY;
-                    
-                    const distance = Math.sqrt(distX * distX + distZ * distZ + distY * distY);
-                    
-                    if (distance <= cave.radius) {
-                        return true;
-                    }
-                }
-                
-                return false; // No cave at this location
-            }
-
-            getBlockType(x, y, z) {
-                const depth = -y;
-                const random = Math.random();
-                
-                // Ore generation with full lighting
-                if (depth > 60 && random < 0.001) {
-                    this.oresFound++;
-                    return 'diamond';
-                }
-                
-                if (depth > 40 && random < 0.002) {
-                    this.oresFound++;
-                    return 'emerald';
-                }
-                
-                if (depth > 20 && depth < 60 && random < 0.004) {
-                    this.oresFound++;
-                    return 'lapis';
-                }
-                
-                if (depth > 10 && depth < 40 && random < 0.008) {
-                    this.oresFound++;
-                    return 'iron';
-                }
-                
-                // Fluids
-                if (random < 0.002) {
-                    return 'water';
-                }
-                
-                if (depth > 30 && random < 0.001) {
-                    return 'lava';
-                }
-                
-                // Default stone
-                return 'stone';
-            }
-
-            createCaveBlocks(chunkX, chunkZ, caveData) {
-                const key = `${chunkX},${chunkZ}`;
-                const caveObjects = [];
-
-                caveData.blocks.forEach(block => {
-                    const mesh = this.createBlock(block.x, block.y, block.z, block.type);
-                    if (mesh) {
-                        caveObjects.push(mesh);
-                    }
-                });
-
-                this.caveBlocks.set(key, caveObjects);
-            }
-
-            loadCaveChunk(chunkX, chunkZ) {
-                const key = `${chunkX},${chunkZ}`;
-                const caveData = this.caveSystem.get(key);
-                if (caveData && !this.caveBlocks.has(key)) {
-                    this.createCaveBlocks(chunkX, chunkZ, caveData);
-                }
-            }
-
-            createBlock(x, y, z, type) {
-                const geometry = new THREE.BoxGeometry(2, 2, 2); // Smaller blocks for smoother caves
-                let material;
-                
-                switch (type) {
-                    case 'stone':
-                        material = new THREE.MeshLambertMaterial({ color: 0x808080 });
-                        break;
-                    case 'iron':
-                        material = new THREE.MeshLambertMaterial({ color: 0xD2B48C });
-                        break;
-                    case 'diamond':
-                        material = new THREE.MeshLambertMaterial({ color: 0x00FFFF });
-                        break;
-                    case 'emerald':
-                        material = new THREE.MeshLambertMaterial({ color: 0x00FF00 });
-                        break;
-                    case 'lapis':
-                        material = new THREE.MeshLambertMaterial({ color: 0x0000FF });
-                        break;
-                    case 'water':
-                        material = new THREE.MeshLambertMaterial({ 
-                            color: 0x0077BE, 
-                            transparent: true, 
-                            opacity: 0.7 
-                        });
-                        break;
-                    case 'lava':
-                        material = new THREE.MeshLambertMaterial({ color: 0xFF4500 });
-                        // Full lighting - no optimization
-                        const light = new THREE.PointLight(0xFF4500, 0.5, 12);
-                        light.position.set(x, y, z);
-                        this.scene.add(light);
-                        break;
-                    default:
-                        return null;
-                }
-
-                const block = new THREE.Mesh(geometry, material);
-                block.position.set(x, y, z);
-                block.castShadow = true;
-                block.receiveShadow = true;
-                
-                this.scene.add(block);
-                
-                // Only add collision for solid blocks, not water
-                if (type !== 'water') {
-                    this.collisionObjects.push({
-                        x: x, z: z, y: y,
-                        width: 2, height: 2, depth: 2
-                    });
-                }
-                
-                return block;
             }
 
             createTree(x, y, z) {
@@ -986,18 +600,6 @@
                 return rock;
             }
 
-            createCaveEntrance(x, y, z) {
-                const entranceGeometry = new THREE.BoxGeometry(3, 3, 1);
-                const entranceMaterial = new THREE.MeshLambertMaterial({ color: 0x2F2F2F });
-                const entrance = new THREE.Mesh(entranceGeometry, entranceMaterial);
-                entrance.position.set(x, y - 1, z);
-                entrance.castShadow = true;
-                entrance.receiveShadow = true;
-                this.scene.add(entrance);
-                
-                return entrance;
-            }
-
             getGroundHeight(x, z) {
                 const worldX = x / this.tileSize;
                 const worldZ = z / this.tileSize;
@@ -1036,26 +638,7 @@
                 this.jumpSpeed += this.gravity;
                 this.camera.position.y += this.jumpSpeed;
                 
-                // Improved ground detection that works with caves
-                let groundY = this.getGroundHeight(this.camera.position.x, this.camera.position.z) + this.playerHeight;
-                
-                // Check if we're in a cave area - if so, don't use surface height
-                if (this.isCave(this.camera.position.x, this.camera.position.y - this.playerHeight, this.camera.position.z)) {
-                    // In cave - find the nearest solid block below
-                    let foundGround = false;
-                    for (let checkY = this.camera.position.y - this.playerHeight; checkY >= this.camera.position.y - 20; checkY -= 1) {
-                        if (!this.isCave(this.camera.position.x, checkY, this.camera.position.z)) {
-                            groundY = checkY + this.playerHeight + 1;
-                            foundGround = true;
-                            break;
-                        }
-                    }
-                    if (!foundGround) {
-                        // If no ground found nearby, allow falling
-                        groundY = this.camera.position.y - 100;
-                    }
-                }
-                
+                const groundY = this.getGroundHeight(this.camera.position.x, this.camera.position.z) + this.playerHeight;
                 if (this.camera.position.y <= groundY) {
                     this.camera.position.y = groundY;
                     this.jumpSpeed = 0;
@@ -1122,7 +705,7 @@
 
             finishLoading() {
                 document.getElementById('loading').style.display = 'none';
-                console.log('Cave world loading complete!');
+                console.log('World loading complete!');
             }
 
             updateUI() {
@@ -1134,12 +717,9 @@
                     `${this.currentChunkX}, ${this.currentChunkZ}`;
                 
                 document.getElementById('tileCount').textContent = this.tiles.size;
-                document.getElementById('savedCount').textContent = this.savedChunks.size;
                 document.getElementById('totalGenerated').textContent = this.totalChunksGenerated;
                 document.getElementById('grounded').textContent = this.isGrounded ? 'Yes' : 'No';
                 document.getElementById('worldBorder').textContent = `±${this.worldBorder}`;
-                document.getElementById('underground').textContent = this.camera.position.y < 5 ? 'Yes' : 'No';
-                document.getElementById('oresFound').textContent = this.oresFound;
                 
                 // Update depth indicator
                 const yLevel = Math.floor(this.camera.position.y);
@@ -1169,7 +749,6 @@
                 this.handleCameraRotation();
                 this.handleMovement();
                 this.updateWorld();
-                this.updateLighting();
                 this.updateUI();
                 
                 this.renderer.render(this.scene, this.camera);
@@ -1177,8 +756,8 @@
         }
 
         window.addEventListener('load', () => {
-            console.log('Page loaded, starting Minecraft Cave World...');
-            new MinecraftCaveWorld();
+            console.log('Page loaded, starting Minecraft World...');
+            new MinecraftWorld();
         });
 
         window.addEventListener('error', (e) => {
